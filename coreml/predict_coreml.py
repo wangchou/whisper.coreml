@@ -1,6 +1,6 @@
 from ctypes.util import find_library
-
-import numpy as np
+import torch
+import ctypes
 from ctypes import cdll, c_double, c_uint, c_float, c_char_p, c_void_p, POINTER
 
 # call loadModel
@@ -13,13 +13,13 @@ mlmodel_handle = encoderObj.loadModel(b'./CoremlEncoder.mlmodelc')
 # call predictWith
 encoderObj.predictWith.argtypes = [c_void_p, POINTER(c_float), POINTER(c_float)]
 encoderObj.predictWith.restypes = None
-melSegment = np.ones((1, 80, 3000), dtype=np.float32)
-melSegmentDataPtr = melSegment.ctypes.data_as(POINTER(c_float))
+melSegment = torch.ones((1, 80, 3000), dtype=torch.float32)
+melSegmentDataPtr = ctypes.cast(melSegment.data_ptr(), POINTER(c_float))
 
 # alloc output buffer
 n_state = 384; # tiny=384
-output_floats = np.ones((1500, n_state), dtype=np.float32)
-output_floats_ptr = output_floats.ctypes.data_as(POINTER(c_float))
+output_floats = torch.ones((1500, n_state), dtype=torch.float32)
+output_floats_ptr = ctypes.cast(output_floats.data_ptr(), POINTER(c_float))
 encoderObj.predictWith(mlmodel_handle, melSegmentDataPtr, output_floats_ptr)
 print(output_floats[0][0], output_floats[0][1])
 

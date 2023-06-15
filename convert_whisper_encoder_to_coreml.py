@@ -3,9 +3,6 @@ import torch
 import coremltools as ct
 from coremltools.models.neural_network import quantization_utils
 
-import sys
-print(sys.path)
-
 # model setting
 modelSize="tiny"
 model = whisper.load_model(modelSize).cpu()

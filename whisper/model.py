@@ -12,7 +12,6 @@ from .decoding import decode as decode_function
 from .decoding import detect_language as detect_language_function
 from .transcribe import transcribe as transcribe_function
 
-
 @dataclass
 class ModelDimensions:
     n_mels: int
@@ -139,6 +138,47 @@ class ResidualAttentionBlock(nn.Module):
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
+################################################
+# Coreml Encoder part
+from ctypes import cdll, c_float, c_char_p, c_void_p, POINTER
+import ctypes
+import torch
+
+class CoremlEncoder():
+    def __init__(self):
+        self.encoderObj = None
+        self.mlmodel_handle = None
+
+    def loadModel(self):
+        if self.mlmodel_handle == None:
+            self.encoderObj = cdll.LoadLibrary('./coreml/objcWrapper.o')
+            self.encoderObj.loadModel.argtypes = [c_char_p]
+            self.encoderObj.loadModel.restype = c_void_p
+            self.mlmodel_handle = self.encoderObj.loadModel(b'./coreml/CoremlEncoder.mlmodelc')
+
+    def predictWith(self, melSegment):
+        if self.mlmodel_handle == None:
+            self.loadModel()
+        self.encoderObj.predictWith.argtypes = [c_void_p, POINTER(c_float), POINTER(c_float)]
+        self.encoderObj.predictWith.restypes = None
+
+        # force memory continuous, this is very important
+        melSegment = melSegment.contiguous()
+        melSegmentDataPtr = ctypes.cast(melSegment.data_ptr(), POINTER(c_float))
+
+        # alloc output buffer
+        n_state = 384; # tiny=384
+        output_floats = torch.ones((1, 1500, n_state), dtype=torch.float32).contiguous()
+        output_floats_ptr = ctypes.cast(output_floats.data_ptr(), POINTER(c_float))
+        self.encoderObj.predictWith(self.mlmodel_handle, melSegmentDataPtr, output_floats_ptr)
+        return output_floats
+
+    def closeModel(self):
+        if self.mlmodel_handle != None:
+            self.encoderObj.closeModel.argtypes = [c_void_p]
+            self.encoderObj.closeModel.restypes = None
+            self.encoderObj.closeModel(self.mlmodel_handle)
+########################################
 
 class AudioEncoder(nn.Module):
     def __init__(
@@ -153,12 +193,21 @@ class AudioEncoder(nn.Module):
             [ResidualAttentionBlock(n_state, n_head) for _ in range(n_layer)]
         )
         self.ln_post = LayerNorm(n_state)
+        self.coremlEncoder = None
 
     def forward(self, x: Tensor):
         """
         x : torch.Tensor, shape = (batch_size, n_mels, n_ctx)
             the mel spectrogram of the audio
         """
+        ############################
+        # Coreml Encoder part
+        if self.coremlEncoder == None:
+            self.coremlEncoder = CoremlEncoder()
+        x = self.coremlEncoder.predictWith(x)
+        return x
+        ###########################3
+
         x = F.gelu(self.conv1(x))
         x = F.gelu(self.conv2(x))
         x = x.permute(0, 2, 1)
