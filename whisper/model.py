@@ -72,19 +72,57 @@ class MultiHeadAttention(nn.Module):
         x: Tensor,
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
-        kv_cache: Optional[dict] = None,
+        text_offset: Optional[int] = None,
+        layer_kv_cache: Optional[Tensor] = None,
     ):
         q = self.query(x)
 
-        if kv_cache is None or xa is None or self.key not in kv_cache:
+        if text_offset == 0 or xa is None:
             # hooks, if installed (i.e. kv_cache is not None), will prepend the cached kv tensors;
             # otherwise, perform key/value projections for self- or cross-attention as usual.
             k = self.key(x if xa is None else xa)
             v = self.value(x if xa is None else xa)
+
+            # update layer_kv_cache by k&v
+            is_cross_attn = k.shape[1] > 448 #n_text_ctx = 448
+            # original code in hook
+            #if module not in cache or is_cross_attn:
+            #    # save as-is, for the first token or cross attention
+            #    cache[module] = output
+            #else:
+            #    cache[module] = torch.cat([cache[module], output], dim=1).detach()
+            # translated code
+            if is_cross_attn:
+                layer_kv_cache[0] = k
+                layer_kv_cache[1] = v
+            elif text_offset == 0:
+                for b in range(0, k.shape[0]):
+                    layer_kv_cache[0][b][:k.shape[1]] = k[b]
+                    layer_kv_cache[1][b][:k.shape[1]] = v[b]
+            elif text_offset != None:
+                #k torch.Size([5, 3, 384])
+                #layer_kv_cache torch.Size([2, 5, 448, 384])
+                #range(0, 3)
+                to_text_offset = text_offset+k.shape[1]
+                cache_k = layer_kv_cache[0, :, :text_offset]
+                cache_v = layer_kv_cache[1, :, :text_offset]
+                k = torch.cat([cache_k, k], dim=1).detach()
+                v = torch.cat([cache_v, v], dim=1).detach()
+                for b in range(0, k.shape[0]):
+                    layer_kv_cache[0][b][:to_text_offset] = k[b]
+                    layer_kv_cache[1][b][:to_text_offset] = v[b]
         else:
             # for cross-attention, calculate keys and values once and reuse in subsequent calls.
-            k = kv_cache[self.key]
-            v = kv_cache[self.value]
+            k = layer_kv_cache[0]
+            v = layer_kv_cache[1]
+
+        #if layer_kv_cache is not None:
+        #    print(f"k.shape ={k.shape}, v.shape={v.shape}, layer_kv_cache.shape={layer_kv_cache.shape}")
+        # masked attn
+        # k = v = (batch_size, 0~448, n_state=384) n_text_ctx = 448
+        #
+        # cross attn
+        # k = v = (batch_size, 1500, n_state)
 
         wv, qk = self.qkv_attention(q, k, v, mask)
         return self.out(wv), qk
@@ -128,13 +166,15 @@ class ResidualAttentionBlock(nn.Module):
     def forward(
         self,
         x: Tensor,
+        text_offset: int,
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
-        kv_cache: Optional[dict] = None,
+        masked_kv_cache: Optional[Tensor] = None,
+        cross_kv_cache: Optional[Tensor] = None,
     ):
-        x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache)[0]
+        x = x + self.attn(self.attn_ln(x), mask=mask, text_offset=text_offset, layer_kv_cache=masked_kv_cache)[0]
         if self.cross_attn:
-            x = x + self.cross_attn(self.cross_attn_ln(x), xa, kv_cache=kv_cache)[0]
+            x = x + self.cross_attn(self.cross_attn_ln(x), xa, text_offset=text_offset, layer_kv_cache=cross_kv_cache)[0]
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
@@ -259,27 +299,34 @@ class TextDecoder(nn.Module):
         mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
         self.register_buffer("mask", mask, persistent=False)
 
-    def forward(self, x: Tensor, xa: Tensor, kv_cache: Optional[dict] = None):
+
+    def forward(self, x: Tensor, xa: Tensor,
+                text_offset, masked_kv_caches, cross_kv_caches):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
             the text tokens
         xa : torch.Tensor, shape = (batch_size, n_mels, n_audio_ctx)
             the encoded audio features to be attended on
         """
-        offset = next(iter(kv_cache.values())).shape[1] if kv_cache else 0
+        offset = text_offset #next(iter(kv_cache.values())).shape[1] if kv_cache else 0
         x = (
             self.token_embedding(x)
             + self.positional_embedding[offset : offset + x.shape[-1]]
         )
         x = x.to(xa.dtype)
 
+        layer_idx = 0
         for block in self.blocks:
-            x = block(x, xa, mask=self.mask, kv_cache=kv_cache)
+            masked_kv_cache = masked_kv_caches[layer_idx]
+            cross_kv_cache = cross_kv_caches[layer_idx]
+            x = block(x, text_offset, xa, mask=self.mask, masked_kv_cache=masked_kv_cache, cross_kv_cache = cross_kv_cache)
+            layer_idx += 1
 
         x = self.ln(x)
         logits = (
             x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
         ).float()
+        #print("decoder inferenced", text_offset)
 
         return logits
 
@@ -309,6 +356,22 @@ class Whisper(nn.Module):
         all_heads[self.dims.n_text_layer // 2 :] = True
         self.register_buffer("alignment_heads", all_heads.to_sparse(), persistent=False)
 
+        ###########################
+        # Make decoder passing kv_caches
+        # layer_count, 2(k&v), batch_size, n_ctx = 448, n_state=384(tiny)
+        n_layer = self.dims.n_text_layer
+        n_ctx = self.dims.n_text_ctx
+        n_state = self.dims.n_text_state
+        beam_size = 5
+        masked_kv_caches = torch.empty(n_layer, 2, beam_size, n_ctx, n_state)
+        self.register_buffer("masked_kv_caches", masked_kv_caches, persistent=False)
+
+        # layer_count, 2(k&v), batch_size, n_audio_ctx, n_state=384(tiny)
+        cross_kv_caches = torch.empty(n_layer, 2, beam_size, 1500, n_state)
+        self.register_buffer("cross_kv_caches", cross_kv_caches, persistent=False)
+
+        self.text_offset = 0
+
     def set_alignment_heads(self, dump: bytes):
         array = np.frombuffer(
             gzip.decompress(base64.b85decode(dump)), dtype=bool
@@ -327,7 +390,11 @@ class Whisper(nn.Module):
     def forward(
         self, mel: torch.Tensor, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        return self.decoder(tokens, self.encoder(mel))
+        return self.decoder(tokens, self.encoder(mel),
+                            self.text_offset,
+                            self.masked_kv_caches,
+                            self.cross_kv_caches,
+                            )
 
     @property
     def device(self):
@@ -355,11 +422,12 @@ class Whisper(nn.Module):
         hooks = []
 
         def save_to_cache(module, _, output):
-            if module not in cache or output.shape[1] > self.dims.n_text_ctx:
+            is_cross_attn = output.shape[1] > self.dims.n_text_ctx
+            if module not in cache or is_cross_attn:
                 # save as-is, for the first token or cross attention
                 cache[module] = output
-            else:
-                cache[module] = torch.cat([cache[module], output], dim=1).detach()
+#            else:
+#                cache[module] = torch.cat([cache[module], output], dim=1).detach()
             return cache[module]
 
         def install_hooks(layer: nn.Module):

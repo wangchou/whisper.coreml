@@ -145,16 +145,22 @@ class PyTorchInference(Inference):
         self.initial_token_length = initial_token_length
         self.kv_cache = {}
         self.hooks = []
+        self.n_text_layer = model.dims.n_text_layer
 
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
-        if not self.kv_cache:
-            self.kv_cache, self.hooks = self.model.install_kv_cache_hooks()
+        #if not self.kv_cache:
+        #    self.kv_cache, self.hooks = self.model.install_kv_cache_hooks()
 
         if tokens.shape[-1] > self.initial_token_length:
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
 
-        return self.model.decoder(tokens, audio_features, kv_cache=self.kv_cache)
+        output = self.model.decoder(tokens, audio_features,
+                                    self.model.text_offset,
+                                    self.model.masked_kv_caches,
+                                    self.model.cross_kv_caches)
+        self.model.text_offset += output.shape[1]
+        return output
 
     def cleanup_caching(self):
         for hook in self.hooks:
@@ -162,11 +168,18 @@ class PyTorchInference(Inference):
 
         self.kv_cache = {}
         self.hooks = []
+        self.model.text_offset = 0
 
     def rearrange_kv_cache(self, source_indices):
-        for module, tensor in self.kv_cache.items():
-            # update the key/value cache to contain the selected sequences
-            self.kv_cache[module] = tensor[source_indices].detach()
+#        for module, tensor in self.kv_cache.items():
+#            # update the key/value cache to contain the selected sequences
+#            self.kv_cache[module] = tensor[source_indices].detach()
+
+        for i in range(0, self.n_text_layer):
+            self.model.masked_kv_caches[i][0] = self.model.masked_kv_caches[i][0][source_indices]
+            self.model.masked_kv_caches[i][1] = self.model.masked_kv_caches[i][1][source_indices]
+            self.model.cross_kv_caches[i][0] = self.model.cross_kv_caches[i][0][source_indices]
+            self.model.cross_kv_caches[i][1] = self.model.cross_kv_caches[i][1][source_indices]
 
 
 class SequenceRanker:
