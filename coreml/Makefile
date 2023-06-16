@@ -1,4 +1,7 @@
-objcWrapper.o: objcWrapper.h objcWrapper.mm CoremlEncoder.h CoremlEncoder.m
-	clang -shared -undefined dynamic_lookup -fobjc-arc objcWrapper.mm CoremlEncoder.m -o objcWrapper.o -framework Foundation -framework CoreML -framework Accelerate
+tiny/objcWrapper.so: objcWrapper.h objcWrapper.mm
+	cp obj* ${@D}
+	xcrun coremlc compile ${@D}/CoremlEncoder.mlmodel ${@D}
+	xcrun coremlc generate ${@D}/CoremlEncoder.mlmodel ${@D}
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/objcWrapper.mm ${@D}/CoremlEncoder.m -o ${@D}/objcWrapper.so -framework Foundation -framework CoreML -framework Accelerate
 clean:
-	rm objcWrapper.o
+	rm tiny/objcWrapper.so

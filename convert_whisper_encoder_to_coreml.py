@@ -2,9 +2,10 @@ import whisper
 import torch
 import coremltools as ct
 from coremltools.models.neural_network import quantization_utils
+import os
 
 # model setting
-modelSize="tiny"
+modelSize = "tiny"
 model = whisper.load_model(modelSize).cpu()
 n_state = 384 # tiny=384, base=512, small=768, medium=1024, large=1280
 
@@ -24,7 +25,10 @@ encoder = ct.convert(
 )
 
 encoder_fp16 = quantization_utils.quantize_weights(encoder, nbits=16)
-encoder_fp16.save(f"coreml/encoder_{modelSize}_fp16.mlmodel")
+folder_path = f"coreml/{modelSize}"
+if not os.path.exists(folder_path):
+    os.mkdir(folder_path)
+encoder_fp16.save(f"{folder_path}/CoremlEncoder.mlmodel")
 
 # test accuracy
 torch_output = traced_encoder.forward(melSegment)

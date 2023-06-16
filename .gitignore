@@ -9,6 +9,8 @@ thumbs.db
 .DS_Store
 .idea
 
-coreml/*.mlmodel
-coreml/*.mlmodelc
-coreml/*.o
+coreml/tiny
+coreml/base
+coreml/small
+coreml/medium
+coreml/large

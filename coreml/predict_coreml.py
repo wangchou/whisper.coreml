@@ -4,11 +4,11 @@ import ctypes
 from ctypes import cdll, c_double, c_uint, c_float, c_char_p, c_void_p, POINTER
 
 # call loadModel
-encoderObj = cdll.LoadLibrary('./objcWrapper.o')
+encoderObj = cdll.LoadLibrary('./tiny/objcWrapper.so')
 encoderObj.loadModel.argtypes = [c_char_p]
 encoderObj.loadModel.restype = c_void_p
 
-mlmodel_handle = encoderObj.loadModel(b'./CoremlEncoder.mlmodelc')
+mlmodel_handle = encoderObj.loadModel(b'./tiny/CoremlEncoder.mlmodelc')
 
 # call predictWith
 encoderObj.predictWith.argtypes = [c_void_p, POINTER(c_float), POINTER(c_float)]

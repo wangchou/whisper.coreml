@@ -145,16 +145,19 @@ import ctypes
 import torch
 
 class CoremlEncoder():
-    def __init__(self):
+    def __init__(self, n_state: int):
+        self.n_state = n_state
         self.encoderObj = None
         self.mlmodel_handle = None
 
     def loadModel(self):
         if self.mlmodel_handle == None:
-            self.encoderObj = cdll.LoadLibrary('./coreml/objcWrapper.o')
+            modelSize = self.getModelSize(self.n_state)
+            self.encoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/objcWrapper.so')
             self.encoderObj.loadModel.argtypes = [c_char_p]
             self.encoderObj.loadModel.restype = c_void_p
-            self.mlmodel_handle = self.encoderObj.loadModel(b'./coreml/CoremlEncoder.mlmodelc')
+            c_string = bytes(f'./coreml/{modelSize}/CoremlEncoder.mlmodelc', 'ascii')
+            self.mlmodel_handle = self.encoderObj.loadModel(c_string)
 
     def predictWith(self, melSegment):
         if self.mlmodel_handle == None:
@@ -167,8 +170,7 @@ class CoremlEncoder():
         melSegmentDataPtr = ctypes.cast(melSegment.data_ptr(), POINTER(c_float))
 
         # alloc output buffer
-        n_state = 384; # tiny=384
-        output_floats = torch.ones((1, 1500, n_state), dtype=torch.float32).contiguous()
+        output_floats = torch.ones((1, 1500, self.n_state), dtype=torch.float32).contiguous()
         output_floats_ptr = ctypes.cast(output_floats.data_ptr(), POINTER(c_float))
         self.encoderObj.predictWith(self.mlmodel_handle, melSegmentDataPtr, output_floats_ptr)
         return output_floats
@@ -178,6 +180,20 @@ class CoremlEncoder():
             self.encoderObj.closeModel.argtypes = [c_void_p]
             self.encoderObj.closeModel.restypes = None
             self.encoderObj.closeModel(self.mlmodel_handle)
+
+    def getModelSize(self, n_state: int):
+        if n_state == 384:
+            return "tiny"
+        elif n_state == 512:
+            return "base"
+        elif n_state == 768:
+            return "small"
+        elif n_state == 1024:
+            return "medium"
+        elif n_state == 1280:
+            return "large"
+        else:
+            return "unknown_model_size"
 ########################################
 
 class AudioEncoder(nn.Module):
@@ -194,6 +210,7 @@ class AudioEncoder(nn.Module):
         )
         self.ln_post = LayerNorm(n_state)
         self.coremlEncoder = None
+        self.n_state = n_state
 
     def forward(self, x: Tensor):
         """
@@ -203,7 +220,7 @@ class AudioEncoder(nn.Module):
         ############################
         # Coreml Encoder part
         if self.coremlEncoder == None:
-            self.coremlEncoder = CoremlEncoder()
+            self.coremlEncoder = CoremlEncoder(self.n_state)
         x = self.coremlEncoder.predictWith(x)
         return x
         ###########################3
