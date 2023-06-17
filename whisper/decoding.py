@@ -155,12 +155,14 @@ class PyTorchInference(Inference):
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
 
-        output = self.model.decoder(tokens, audio_features,
-                                    self.model.text_offset,
-                                    self.model.masked_kv_caches,
-                                    self.model.cross_kv_caches)
+        output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.model.decoder(tokens, audio_features,
+                                                                                          self.model.text_offset,
+                                                                                          self.model.masked_kv_caches,
+                                                                                          self.model.cross_kv_caches)
+        self.model.masked_kv_caches = new_masked_kv_caches
+        self.model.cross_kv_caches = new_cross_kv_caches
         self.model.text_offset += output.shape[1]
-        return output
+        return output, cross_qks
 
     def cleanup_caching(self):
         for hook in self.hooks:
@@ -688,7 +690,7 @@ class DecodingTask:
 
         try:
             for i in range(self.sample_len):
-                logits = self.inference.logits(tokens, audio_features)
+                logits = self.inference.logits(tokens, audio_features)[0]
 
                 if (
                     i == 0 and self.tokenizer.no_speech is not None

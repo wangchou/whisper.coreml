@@ -183,23 +183,25 @@ def find_alignment(
     ).to(model.device)
 
     # install hooks on the cross attention layers to retrieve the attention weights
-    QKs = [None] * model.dims.n_text_layer
-    hooks = [
-        block.cross_attn.register_forward_hook(
-            lambda _, ins, outs, index=i: QKs.__setitem__(index, outs[-1][0])
-        )
-        for i, block in enumerate(model.decoder.blocks)
-    ]
+    #QKs = [None] * model.dims.n_text_layer
+    #hooks = [
+    #    block.cross_attn.register_forward_hook(
+    #        lambda _, ins, outs, index=i: QKs.__setitem__(index, outs[1][0])
+    #    )
+    #    for i, block in enumerate(model.decoder.blocks)
+    #]
 
     with torch.no_grad():
-        logits = model(mel.unsqueeze(0), tokens.unsqueeze(0))[0]
+        output, cross_qks = model(mel.unsqueeze(0), tokens.unsqueeze(0))
+        QKs = [cross_qks[l] for l in range(cross_qks.shape[0])]
+        logits = output[0]
         sampled_logits = logits[len(tokenizer.sot_sequence) :, : tokenizer.eot]
         token_probs = sampled_logits.softmax(dim=-1)
         text_token_probs = token_probs[np.arange(len(text_tokens)), text_tokens]
         text_token_probs = text_token_probs.tolist()
 
-    for hook in hooks:
-        hook.remove()
+    #for hook in hooks:
+    #    hook.remove()
 
     # heads * tokens * frames
     weights = torch.stack([QKs[l][h] for l, h in model.alignment_heads.indices().T])
