@@ -11,6 +11,7 @@ from torch import Tensor, nn
 from .decoding import decode as decode_function
 from .decoding import detect_language as detect_language_function
 from .transcribe import transcribe as transcribe_function
+from timeit import default_timer as timer
 
 @dataclass
 class ModelDimensions:
@@ -75,20 +76,10 @@ class MultiHeadAttention(nn.Module):
         q = self.query(x)
 
         if text_offset == 0 or xa is None:
-            # hooks, if installed (i.e. kv_cache is not None), will prepend the cached kv tensors;
-            # otherwise, perform key/value projections for self- or cross-attention as usual.
             k = self.key(x if xa is None else xa)
             v = self.value(x if xa is None else xa)
 
-            # update layer_kv_cache by k&v
             is_cross_attn = k.shape[1] > 448 #n_text_ctx = 448
-            # original code in hook
-            #if module not in cache or is_cross_attn:
-            #    # save as-is, for the first token or cross attention
-            #    cache[module] = output
-            #else:
-            #    cache[module] = torch.cat([cache[module], output], dim=1).detach()
-            # translated code
             if is_cross_attn:
                 layer_kv_cache[0] = k.detach()
                 layer_kv_cache[1] = v.detach()
@@ -97,9 +88,6 @@ class MultiHeadAttention(nn.Module):
                     layer_kv_cache[0][b][:k.shape[1]] = k[b]
                     layer_kv_cache[1][b][:k.shape[1]] = v[b]
             elif text_offset != None:
-                #k torch.Size([5, 3, 384])
-                #layer_kv_cache torch.Size([2, 5, 448, 384])
-                #range(0, 3)
                 to_text_offset = text_offset+k.shape[1]
                 cache_k = layer_kv_cache[0, :, :text_offset]
                 cache_v = layer_kv_cache[1, :, :text_offset]
@@ -112,14 +100,6 @@ class MultiHeadAttention(nn.Module):
             # for cross-attention, calculate keys and values once and reuse in subsequent calls.
             k = layer_kv_cache[0]
             v = layer_kv_cache[1]
-
-        #if layer_kv_cache is not None:
-        #    print(f"k.shape ={k.shape}, v.shape={v.shape}, layer_kv_cache.shape={layer_kv_cache.shape}")
-        # masked attn
-        # k = v = (batch_size, 0~448, n_state=384) n_text_ctx = 448
-        #
-        # cross attn
-        # k = v = (batch_size, 1500, n_state)
 
         wv, qk = self.qkv_attention(q, k, v, mask)
         return self.out(wv), qk.detach(), layer_kv_cache
@@ -140,7 +120,6 @@ class MultiHeadAttention(nn.Module):
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
         return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
-
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
@@ -259,9 +238,11 @@ class AudioEncoder(nn.Module):
         """
         ############################
         # Coreml Encoder part
+        #encoder_startT = timer()
         if self.coremlEncoder == None:
             self.coremlEncoder = CoremlEncoder(self.n_state)
         x = self.coremlEncoder.predictWith(x)
+        #print(f"\tendcoder took {timer() - encoder_startT}")
         return x
         ###########################3
 
@@ -318,20 +299,30 @@ class TextDecoder(nn.Module):
         cross_qks = []
         new_masked_kv_caches = []
         new_cross_kv_caches = []
+
         for block in self.blocks:
             masked_kv_cache = masked_kv_caches[layer_idx]
             cross_kv_cache = cross_kv_caches[layer_idx]
-            x, cross_qk, new_masked_kv_cache, new_cross_kv_cache = block(x, text_offset, xa, mask=self.mask, masked_kv_cache=masked_kv_cache.detach(), cross_kv_cache = cross_kv_cache.detach())
+            x, cross_qk, new_masked_kv_cache, new_cross_kv_cache = block(x,
+                                                                         text_offset,
+                                                                         xa,
+                                                                         mask=self.mask,
+                                                                         masked_kv_cache=masked_kv_cache,
+                                                                         cross_kv_cache = cross_kv_cache)
 
             cross_qks.append(cross_qk)
             new_masked_kv_caches.append(new_masked_kv_cache)
-            new_cross_kv_caches.append(new_cross_kv_cache)
+            if text_offset == 0:
+                new_cross_kv_caches.append(new_cross_kv_cache)
 
             layer_idx += 1
 
         cross_qks = torch.cat(cross_qks)
         new_masked_kv_caches = torch.stack(new_masked_kv_caches)
-        new_cross_kv_caches = torch.stack(new_cross_kv_caches)
+        if text_offset == 0:
+            new_cross_kv_caches = torch.stack(new_cross_kv_caches)
+        else:
+            new_cross_kv_caches = cross_kv_caches
 
         x = self.ln(x)
         logits = (
@@ -401,20 +392,24 @@ class Whisper(nn.Module):
                                                                                     )
         self.masked_kv_caches = new_masked_kv_caches
         self.cross_kv_caches = new_cross_kv_caches
-#        self.text_offset += output.shape[1]
         return output, cross_qks
 
     def forward(
         self, mel: torch.Tensor, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
+        #print(f"model.forward - mel.shape={mel.shape}, tokens.shape={tokens.shape}")
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens, self.encoder(mel),
                                                                                     self.text_offset,
                                                                                     self.masked_kv_caches,
                                                                                     self.cross_kv_caches,
                                                                                     )
-        self.masked_kv_caches = new_masked_kv_caches
-        self.cross_kv_caches = new_cross_kv_caches
-#        self.text_offset += output.shape[1]
+        # this only called once in each add_word_timestamps,
+        # => no next call
+        # => no need for cache
+        # and change text_offset cause error in next call from PyTorchInference
+        #self.masked_kv_caches = new_masked_kv_caches
+        #self.cross_kv_caches = new_cross_kv_caches
+        #self.text_offset += output.shape[1]
         return output, cross_qks
 
     @property
@@ -424,40 +419,6 @@ class Whisper(nn.Module):
     @property
     def is_multilingual(self):
         return self.dims.n_vocab == 51865
-
-    def install_kv_cache_hooks(self, cache: Optional[dict] = None):
-        """
-        The `MultiHeadAttention` module optionally accepts `kv_cache` which stores the key and value
-        tensors calculated for the previous positions. This method returns a dictionary that stores
-        all caches, and the necessary hooks for the key and value projection modules that save the
-        intermediate tensors to be reused during later calculations.
-
-        Returns
-        -------
-        cache : Dict[nn.Module, torch.Tensor]
-            A dictionary object mapping the key/value projection modules to its cache
-        hooks : List[RemovableHandle]
-            List of PyTorch RemovableHandle objects to stop the hooks to be called
-        """
-        cache = {**cache} if cache is not None else {}
-        hooks = []
-
-        def save_to_cache(module, _, output):
-            is_cross_attn = output.shape[1] > self.dims.n_text_ctx
-            if module not in cache or is_cross_attn:
-                # save as-is, for the first token or cross attention
-                cache[module] = output
-#            else:
-#                cache[module] = torch.cat([cache[module], output], dim=1).detach()
-            return cache[module]
-
-        def install_hooks(layer: nn.Module):
-            if isinstance(layer, MultiHeadAttention):
-                hooks.append(layer.key.register_forward_hook(save_to_cache))
-                hooks.append(layer.value.register_forward_hook(save_to_cache))
-
-        self.decoder.apply(install_hooks)
-        return cache, hooks
 
     detect_language = detect_language_function
     transcribe = transcribe_function

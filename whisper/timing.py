@@ -14,7 +14,7 @@ from .tokenizer import Tokenizer
 
 if TYPE_CHECKING:
     from .model import Whisper
-
+from timeit import default_timer as timer
 
 def median_filter(x: torch.Tensor, filter_width: int):
     """Apply a median filter of width `filter_width` along the last dimension of `x`"""

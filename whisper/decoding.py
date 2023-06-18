@@ -14,6 +14,7 @@ from .utils import compression_ratio
 if TYPE_CHECKING:
     from .model import Whisper
 
+from timeit import default_timer as timer
 
 @torch.no_grad()
 def detect_language(
@@ -143,14 +144,11 @@ class PyTorchInference(Inference):
     def __init__(self, model: "Whisper", initial_token_length: int):
         self.model: "Whisper" = model
         self.initial_token_length = initial_token_length
-        self.kv_cache = {}
-        self.hooks = []
         self.n_text_layer = model.dims.n_text_layer
+        #self.lastT = timer()
 
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
-        #if not self.kv_cache:
-        #    self.kv_cache, self.hooks = self.model.install_kv_cache_hooks()
-
+        #startT = timer()
         if tokens.shape[-1] > self.initial_token_length:
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
@@ -162,27 +160,26 @@ class PyTorchInference(Inference):
         self.model.masked_kv_caches = new_masked_kv_caches
         self.model.cross_kv_caches = new_cross_kv_caches
         self.model.text_offset += output.shape[1]
+        #print(f"PyTorchInference tooks {timer()-self.lastT}")
+        #self.lastT = timer()
         return output, cross_qks
 
     def cleanup_caching(self):
-        for hook in self.hooks:
-            hook.remove()
-
-        self.kv_cache = {}
-        self.hooks = []
         self.model.text_offset = 0
 
     def rearrange_kv_cache(self, source_indices):
-#        for module, tensor in self.kv_cache.items():
-#            # update the key/value cache to contain the selected sequences
-#            self.kv_cache[module] = tensor[source_indices].detach()
+        #startT = timer()
+        # torch.Size([4, 2, 5, 448, 384])
+        is_same_order = source_indices == list(range(len(source_indices)))
 
-        for i in range(0, self.n_text_layer):
-            self.model.masked_kv_caches[i][0] = self.model.masked_kv_caches[i][0][source_indices]
-            self.model.masked_kv_caches[i][1] = self.model.masked_kv_caches[i][1][source_indices]
-            self.model.cross_kv_caches[i][0] = self.model.cross_kv_caches[i][0][source_indices]
-            self.model.cross_kv_caches[i][1] = self.model.cross_kv_caches[i][1][source_indices]
-
+        #print(source_indices, is_same_order)
+        if not is_same_order:
+            for i in range(0, self.n_text_layer):
+                self.model.masked_kv_caches[i][0] = self.model.masked_kv_caches[i][0][source_indices]
+                self.model.masked_kv_caches[i][1] = self.model.masked_kv_caches[i][1][source_indices]
+                self.model.cross_kv_caches[i][0] = self.model.cross_kv_caches[i][0][source_indices]
+                self.model.cross_kv_caches[i][1] = self.model.cross_kv_caches[i][1][source_indices]
+        #print(f"rearrange cache tooks  {timer()-startT} ({is_same_order})")
 
 class SequenceRanker:
     def rank(
@@ -690,7 +687,7 @@ class DecodingTask:
 
         try:
             for i in range(self.sample_len):
-                logits = self.inference.logits(tokens, audio_features)[0]
+                logits, cross_qks = self.inference.logits(tokens, audio_features)
 
                 if (
                     i == 0 and self.tokenizer.no_speech is not None
