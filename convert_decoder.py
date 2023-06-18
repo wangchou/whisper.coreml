@@ -24,9 +24,9 @@ bs = 5 # beam_size
 n_ctx = 448
 x = torch.ones((bs, 1), dtype=torch.int32)
 xa = torch.ones((bs, 1500, n_state))
-text_offset = torch.ones(1, dtype=torch.int32)
-masked_kv_caches = torch.ones((n_layer, 2, bs, n_ctx, n_state))
-cross_kv_caches = torch.ones((n_layer, 2, bs, 1500, n_state))
+text_offset = torch.zeros(1, dtype=torch.int32)
+masked_kv_caches = torch.ones((n_layer * 2, bs, n_ctx, n_state))
+cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state))
 
 # convert to coreml model
 #input1 = ct.TensorType(name="x", shape=ct.Shape(shape=(5,
@@ -49,7 +49,8 @@ decoder = ct.convert(
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
-decoder.save(f"{folder_path}/Decoder.mlmodel")
+decoder_fp16 = quantization_utils.quantize_weights(decoder, nbits=16)
+decoder_fp16.save(f"{folder_path}/Decoder.mlmodel")
 
 # test accuracy
 #torch_output = traced_decoder_block.forward([input1, input2, input3, input4, input5, input6])

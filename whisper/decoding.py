@@ -159,7 +159,7 @@ class PyTorchInference(Inference):
                                                                                           self.model.cross_kv_caches)
         self.model.text_offset += output.shape[1]
         # fixed cache len to 448 for calling coreml
-        self.model.masked_kv_caches[:, :, :, :self.model.text_offset, :] = new_masked_kv_caches
+        self.model.masked_kv_caches[:, :, :self.model.text_offset, :] = new_masked_kv_caches
         self.model.cross_kv_caches = new_cross_kv_caches
         #print(f"PyTorchInference tooks {timer()-self.lastT}")
         #self.lastT = timer()
@@ -175,11 +175,9 @@ class PyTorchInference(Inference):
 
         #print(source_indices, is_same_order)
         if not is_same_order:
-            for i in range(0, self.n_text_layer):
-                self.model.masked_kv_caches[i][0] = self.model.masked_kv_caches[i][0][source_indices]
-                self.model.masked_kv_caches[i][1] = self.model.masked_kv_caches[i][1][source_indices]
-                self.model.cross_kv_caches[i][0] = self.model.cross_kv_caches[i][0][source_indices]
-                self.model.cross_kv_caches[i][1] = self.model.cross_kv_caches[i][1][source_indices]
+            for i in range(0, self.n_text_layer * 2):
+                self.model.masked_kv_caches[i] = self.model.masked_kv_caches[i][source_indices]
+                self.model.cross_kv_caches[i] = self.model.cross_kv_caches[i][source_indices]
         #print(f"rearrange cache tooks  {timer()-startT} ({is_same_order})")
 
 class SequenceRanker:
