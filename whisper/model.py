@@ -70,7 +70,7 @@ class MultiHeadAttention(nn.Module):
         x: Tensor,
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
-        text_offset: Optional[int] = None,
+        text_offset: Optional[Tensor] = None,
         layer_kv_cache: Optional[Tensor] = None,
     ):
         q = self.query(x)
@@ -80,29 +80,20 @@ class MultiHeadAttention(nn.Module):
             v = self.value(x if xa is None else xa)
 
             is_cross_attn = k.shape[1] > 448 #n_text_ctx = 448
-            if is_cross_attn:
-                layer_kv_cache[0] = k.detach()
-                layer_kv_cache[1] = v.detach()
-            elif text_offset == 0:
-                for b in range(0, k.shape[0]):
-                    layer_kv_cache[0][b][:k.shape[1]] = k[b]
-                    layer_kv_cache[1][b][:k.shape[1]] = v[b]
-            elif text_offset != None:
-                to_text_offset = text_offset+k.shape[1]
+            if not is_cross_attn and text_offset != None and text_offset != 0:
                 cache_k = layer_kv_cache[0, :, :text_offset]
                 cache_v = layer_kv_cache[1, :, :text_offset]
                 k = torch.cat([cache_k, k], dim=1)
                 v = torch.cat([cache_v, v], dim=1)
-                for b in range(0, k.shape[0]):
-                    layer_kv_cache[0][b][:to_text_offset] = k[b]
-                    layer_kv_cache[1][b][:to_text_offset] = v[b]
         else:
             # for cross-attention, calculate keys and values once and reuse in subsequent calls.
             k = layer_kv_cache[0]
             v = layer_kv_cache[1]
+        new_cache_k = k
+        new_cache_v = v
 
         wv, qk = self.qkv_attention(q, k, v, mask)
-        return self.out(wv), qk.detach(), layer_kv_cache
+        return self.out(wv), qk.detach(), torch.stack([new_cache_k, new_cache_v])
 
     def qkv_attention(
         self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None
@@ -142,12 +133,13 @@ class ResidualAttentionBlock(nn.Module):
     def forward(
         self,
         x: Tensor,
-        text_offset: int,
+        text_offset: Tensor,
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
         masked_kv_cache: Optional[Tensor] = None,
         cross_kv_cache: Optional[Tensor] = None,
     ):
+        #print(f"x {x.shape}, {text_offset}, xa {xa.shape}, mask {mask.shape}, masked_kv_cache {masked_kv_cache.shape}, cross_kv_cache {cross_kv_cache.shape}")
         x_out, masked_qk, new_masked_kv_cache = self.attn(self.attn_ln(x), mask=mask, text_offset=text_offset, layer_kv_cache=masked_kv_cache)
         x = x + x_out
         cross_qk = None
@@ -155,6 +147,7 @@ class ResidualAttentionBlock(nn.Module):
             x_out, cross_qk, new_cross_kv_cache = self.cross_attn(self.cross_attn_ln(x), xa, text_offset=text_offset, layer_kv_cache=cross_kv_cache)
             x = x + x_out
         x = x + self.mlp(self.mlp_ln(x))
+        #print(f"x {x.shape}, cross_qk {cross_qk.shape}, new_masked_kv_cache {new_masked_kv_cache.shape}, new_cross_kv_cache {new_cross_kv_cache.shape}")
         return x, cross_qk, new_masked_kv_cache, new_cross_kv_cache
 
 ################################################
@@ -281,13 +274,14 @@ class TextDecoder(nn.Module):
 
 
     def forward(self, x: Tensor, xa: Tensor,
-                text_offset, masked_kv_caches, cross_kv_caches):
+                text_offset: Tensor, masked_kv_caches: Tensor, cross_kv_caches: Tensor):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
             the text tokens
         xa : torch.Tensor, shape = (batch_size, n_mels, n_audio_ctx)
             the encoded audio features to be attended on
         """
+        #print(f"x {x.shape}, xa {xa.shape}, text_offset {text_offset}, masked_kv_caches {masked_kv_caches.shape}, cross_kv_caches {cross_kv_caches.shape}")
         offset = text_offset #next(iter(kv_cache.values())).shape[1] if kv_cache else 0
         x = (
             self.token_embedding(x)
@@ -309,7 +303,6 @@ class TextDecoder(nn.Module):
                                                                          mask=self.mask,
                                                                          masked_kv_cache=masked_kv_cache,
                                                                          cross_kv_cache = cross_kv_cache)
-
             cross_qks.append(cross_qk)
             new_masked_kv_caches.append(new_masked_kv_cache)
             if text_offset == 0:
@@ -370,7 +363,8 @@ class Whisper(nn.Module):
         cross_kv_caches = torch.empty(n_layer, 2, beam_size, 1500, n_state)
         self.register_buffer("cross_kv_caches", cross_kv_caches, persistent=False)
 
-        self.text_offset = 0
+        text_offset = torch.zeros(1, dtype=torch.int32)
+        self.register_buffer("text_offset", text_offset, persistent=False)
 
     def set_alignment_heads(self, dump: bytes):
         array = np.frombuffer(

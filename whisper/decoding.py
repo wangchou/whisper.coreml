@@ -157,15 +157,16 @@ class PyTorchInference(Inference):
                                                                                           self.model.text_offset,
                                                                                           self.model.masked_kv_caches,
                                                                                           self.model.cross_kv_caches)
-        self.model.masked_kv_caches = new_masked_kv_caches
-        self.model.cross_kv_caches = new_cross_kv_caches
         self.model.text_offset += output.shape[1]
+        # fixed cache len to 448 for calling coreml
+        self.model.masked_kv_caches[:, :, :, :self.model.text_offset, :] = new_masked_kv_caches
+        self.model.cross_kv_caches = new_cross_kv_caches
         #print(f"PyTorchInference tooks {timer()-self.lastT}")
         #self.lastT = timer()
         return output, cross_qks
 
     def cleanup_caching(self):
-        self.model.text_offset = 0
+        self.model.text_offset = torch.zeros(1, dtype=torch.int32)
 
     def rearrange_kv_cache(self, source_indices):
         #startT = timer()
