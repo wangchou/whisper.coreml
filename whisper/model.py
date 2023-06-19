@@ -69,7 +69,7 @@ class MultiHeadAttention(nn.Module):
         self,
         x: Tensor,
         xa: Optional[Tensor] = None,
-        mask: Optional[Tensor] = None,
+        qk_mask: Optional[Tensor] = None,
         text_offset: Optional[Tensor] = None,
         cache_k: Optional[Tensor] = None,
         cache_v: Optional[Tensor] = None,
@@ -93,11 +93,11 @@ class MultiHeadAttention(nn.Module):
         new_k = k
         new_v = v
 
-        wv, qk = self.qkv_attention(q, k, v, mask)
+        wv, qk = self.qkv_attention(q, k, v, qk_mask)
         return self.out(wv), qk.detach(), new_k, new_v
 
     def qkv_attention(
-        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None
+        self, q: Tensor, k: Tensor, v: Tensor, qk_mask: Optional[Tensor] = None
     ):
         n_batch, n_ctx, n_state = q.shape
         scale = (n_state // self.n_head) ** -0.25
@@ -106,8 +106,8 @@ class MultiHeadAttention(nn.Module):
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
         qk = q @ k
-        if mask is not None:
-            qk = qk + mask[:n_ctx, :n_ctx]
+        if qk_mask is not None:
+            qk = qk + qk_mask
         qk = qk.float()
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
@@ -136,13 +136,13 @@ class ResidualAttentionBlock(nn.Module):
         x: Tensor,
         text_offset: Tensor,
         xa: Optional[Tensor] = None,
-        mask: Optional[Tensor] = None,
+        qk_mask: Optional[Tensor] = None,
         mk: Optional[Tensor] = None,
         mv: Optional[Tensor] = None,
         ck: Optional[Tensor] = None,
         cv: Optional[Tensor] = None,
     ):
-        x_out, masked_qk, new_mk, new_mv = self.attn(self.attn_ln(x), mask=mask, text_offset=text_offset, cache_k=mk, cache_v=mv)
+        x_out, masked_qk, new_mk, new_mv = self.attn(self.attn_ln(x), qk_mask=qk_mask, text_offset=text_offset, cache_k=mk, cache_v=mv)
         x = x + x_out
         cross_qk = None
         if self.cross_attn:
@@ -284,18 +284,19 @@ class TextDecoder(nn.Module):
         """
         #print(f"x {x.shape}, xa {xa.shape}, text_offset {text_offset}, masked_kv_caches {masked_kv_caches.shape}, cross_kv_caches {cross_kv_caches.shape}")
         offset = text_offset #next(iter(kv_cache.values())).shape[1] if kv_cache else 0
+        n_batch, n_ctx = x.shape
+        qk_mask = self.mask[:n_ctx, :n_ctx]
         x = (
             self.token_embedding(x)
             + self.positional_embedding[offset : offset + x.shape[-1]]
         )
         x = x.to(xa.dtype)
 
-        layer_idx = 0
         cross_qks = []
         new_masked_kv_caches = []
         new_cross_kv_caches = []
 
-        for block in self.blocks:
+        for layer_idx, block in enumerate(self.blocks):
             # mk = masked_key_cache, ck=cross_key_cache
             mk = masked_kv_caches[layer_idx*2]
             mv = masked_kv_caches[layer_idx*2 + 1]
@@ -304,7 +305,7 @@ class TextDecoder(nn.Module):
             x, cross_qk, new_mk, new_mv, new_ck, new_cv = block(x,
                                                                 text_offset,
                                                                 xa,
-                                                                mask=self.mask,
+                                                                qk_mask=qk_mask,
                                                                 mk=mk,
                                                                 mv=mv,
                                                                 ck=ck,
