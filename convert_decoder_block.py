@@ -18,11 +18,11 @@ decoder.eval()
 bs = 5 # beam_size
 n_ctx = 448
 x = torch.ones((bs, 1, n_state))
-text_offset = torch.zeros(1, dtype=torch.int32)
+text_offset = torch.ones(1, dtype=torch.int32)
 xa = torch.ones((bs, 1500, n_state))
-mask = torch.ones((n_ctx, n_ctx))
-mk = torch.ones((bs, n_ctx, n_state))
-mv = torch.ones((bs, n_ctx, n_state))
+qk_mask = torch.ones((1, 1))
+mk = torch.ones((bs, text_offset, n_state))
+mv = torch.ones((bs, text_offset, n_state))
 ck = torch.ones((bs, 1500, n_state))
 cv = torch.ones((bs, 1500, n_state))
 
@@ -33,9 +33,11 @@ cv = torch.ones((bs, 1500, n_state))
 input1 = ct.TensorType(shape=x.shape)
 input2 = ct.TensorType(shape=text_offset.shape, dtype=np.int32)
 input3 = ct.TensorType(shape=xa.shape)
-input4 = ct.TensorType(shape=mask.shape)
-input5 = ct.TensorType(shape=mk.shape)
-input6 = ct.TensorType(shape=mv.shape)
+input4 = ct.TensorType(shape=qk_mask.shape)
+#input5 = ct.TensorType(shape=mk.shape)
+#input6 = ct.TensorType(shape=mv.shape)
+input5 = ct.TensorType(shape=ct.Shape(shape=(5, ct.RangeDim(lower_bound=1, upper_bound=448, default=10), n_state)))
+input6 = ct.TensorType(shape=ct.Shape(shape=(5, ct.RangeDim(lower_bound=1, upper_bound=448, default=10), n_state)))
 input7 = ct.TensorType(shape=ck.shape)
 input8 = ct.TensorType(shape=cv.shape)
 
@@ -47,24 +49,24 @@ output4 = ct.TensorType(name="new_mv")
 output5 = ct.TensorType(name="new_ck")
 output6 = ct.TensorType(name="new_cv")
 
-traced_decoder_block = torch.jit.trace(decoder.blocks[0], (x, text_offset, xa, mask, mk, mv, ck, cv))
+traced_decoder_block = torch.jit.trace(decoder.blocks[0], (x, text_offset, xa, qk_mask, mk, mv, ck, cv))
 decoder_block = ct.convert(
     traced_decoder_block,
-    #convert_to="mlprogram",
+    convert_to="mlprogram",
     inputs=[input1, input2, input3, input4, input5, input6, input7, input8],
-    outputs=[output1, output2, output3, output4, output5, output6],
+    #outputs=[output1, output2, output3, output4, output5, output6],
     compute_units=ct.ComputeUnit.ALL,
 )
 
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
-#decoder_block.save(f"{folder_path}/DecoderBlock.mlpackage")
-decoder_block_fp16 = quantization_utils.quantize_weights(decoder_block, nbits=16)
-decoder_block_fp16.save(f"{folder_path}/DecoderBlock.mlmodel")
+decoder_block.save(f"{folder_path}/DecoderBlock.mlpackage")
+#decoder_block_fp16 = quantization_utils.quantize_weights(decoder_block, nbits=16)
+#decoder_block_fp16.save(f"{folder_path}/DecoderBlock.mlmodel")
 
 # test accuracy
-#torch_output = traced_decoder_block.forward([input1, input2, input3, input4, input5, input6])
+#torch_output = traced_decoder_block.forward([input1, input2, input3, input4, input5, input6, input7, input8])
 #print("torch model output:", torch_output)
 #melSegment = melSegment.cpu().detach().numpy()
 #coreml_output = torch.from_numpy(

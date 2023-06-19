@@ -19,6 +19,7 @@ traced_encoder = torch.jit.trace(encoder, melSegment)
 # convert to coreml model
 encoder = ct.convert(
     traced_encoder,
+    #convert_to="mlprogram",
     inputs=[ct.TensorType(name="melSegment", shape=melSegment.shape)],
     outputs=[ct.TensorType(name="output")],
     compute_units=ct.ComputeUnit.ALL,

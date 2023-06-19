@@ -41,7 +41,7 @@ input5 = ct.TensorType(name="cross_kv_caches", shape=cross_kv_caches.shape)
 traced_decoder = torch.jit.trace(decoder, (x, xa, text_offset, masked_kv_caches, cross_kv_caches))
 decoder = ct.convert(
     traced_decoder,
-    #convert_to="mlprogram"
+    convert_to="mlprogram",
     inputs=[input1, input2, input3, input4, input5],
     compute_units=ct.ComputeUnit.ALL,
 )
@@ -49,8 +49,9 @@ decoder = ct.convert(
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
-decoder_fp16 = quantization_utils.quantize_weights(decoder, nbits=16)
-decoder_fp16.save(f"{folder_path}/Decoder.mlmodel")
+decoder.save(f"{folder_path}/Decoder.mlpackage")
+#decoder_fp16 = quantization_utils.quantize_weights(decoder, nbits=16)
+#decoder_fp16.save(f"{folder_path}/Decoder.mlmodel")
 
 # test accuracy
 #torch_output = traced_decoder_block.forward([input1, input2, input3, input4, input5, input6])

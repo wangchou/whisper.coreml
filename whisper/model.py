@@ -64,6 +64,7 @@ class MultiHeadAttention(nn.Module):
         self.key = Linear(n_state, n_state, bias=False)
         self.value = Linear(n_state, n_state)
         self.out = Linear(n_state, n_state)
+        self.qk_scale = (n_state // n_head) ** -0.5
 
     def forward(
         self,
@@ -82,30 +83,24 @@ class MultiHeadAttention(nn.Module):
 
             is_cross_attn = k.shape[1] > 448 #n_text_ctx = 448
             if not is_cross_attn and text_offset != None and text_offset != 0:
-                new_cache_k = cache_k[:, :text_offset]
-                new_cache_v = cache_v[:, :text_offset]
-                k = torch.cat([new_cache_k, k], dim=1)
-                v = torch.cat([new_cache_v, v], dim=1)
+                k = torch.cat([cache_k, k], dim=1)
+                v = torch.cat([cache_v, v], dim=1)
         else:
             # for cross-attention, calculate keys and values once and reuse in subsequent calls.
             k = cache_k
             v = cache_v
-        new_k = k
-        new_v = v
 
         wv, qk = self.qkv_attention(q, k, v, qk_mask)
-        return self.out(wv), qk.detach(), new_k, new_v
+        return self.out(wv), qk.detach(), k, v
 
     def qkv_attention(
         self, q: Tensor, k: Tensor, v: Tensor, qk_mask: Optional[Tensor] = None
     ):
-        n_batch, n_ctx, n_state = q.shape
-        scale = (n_state // self.n_head) ** -0.25
-        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3) * scale
-        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1) * scale
+        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
-        qk = q @ k
+        qk = q @ k * self.qk_scale
         if qk_mask is not None:
             qk = qk + qk_mask
         qk = qk.float()
@@ -269,7 +264,8 @@ class TextDecoder(nn.Module):
             ]
         )
         self.ln = LayerNorm(n_state)
-
+        self.n_vocab = n_vocab
+        self.n_state = n_state
         mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
         self.register_buffer("mask", mask, persistent=False)
 
@@ -283,13 +279,13 @@ class TextDecoder(nn.Module):
             the encoded audio features to be attended on
         """
         #print(f"x {x.shape}, xa {xa.shape}, text_offset {text_offset}, masked_kv_caches {masked_kv_caches.shape}, cross_kv_caches {cross_kv_caches.shape}")
+
+        if text_offset > 0:
+            masked_kv_caches = masked_kv_caches.split(text_offset, dim=2)[0]
         offset = text_offset #next(iter(kv_cache.values())).shape[1] if kv_cache else 0
         n_batch, n_ctx = x.shape
         qk_mask = self.mask[:n_ctx, :n_ctx]
-        x = (
-            self.token_embedding(x)
-            + self.positional_embedding[offset : offset + x.shape[-1]]
-        )
+        x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
 
         cross_qks = []
@@ -317,8 +313,6 @@ class TextDecoder(nn.Module):
                 new_cross_kv_caches.append(new_ck)
                 new_cross_kv_caches.append(new_cv)
 
-            layer_idx += 1
-
         cross_qks = torch.cat(cross_qks)
         new_masked_kv_caches = torch.stack(new_masked_kv_caches)
         if text_offset == 0:
@@ -330,6 +324,12 @@ class TextDecoder(nn.Module):
         logits = (
             x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
         ).float()
+
+        # 51865 = 5 * 11 * 23 * 41
+        # slower on cpu but faster on ANE
+        #splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
+        #x = x.view(*x.shape[:2], self.n_state)
+        #logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
