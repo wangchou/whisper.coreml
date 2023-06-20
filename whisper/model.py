@@ -78,12 +78,12 @@ class MultiHeadAttention(nn.Module):
     ):
         q = self.query(x)
 
-        if text_offset == 0 or xa is None:
+        if cache_k is None or xa is None:
             k = self.key(x if xa is None else xa)
             v = self.value(x if xa is None else xa)
 
-            is_cross_attn = k.shape[1] > 448 #n_text_ctx = 448
-            if not is_cross_attn and text_offset != None and text_offset != 0:
+            # only for self masked attention
+            if qk_mask is not None and cache_k is not None:
                 k = torch.cat([cache_k, k], dim=1)
                 v = torch.cat([cache_v, v], dim=1)
         else:
@@ -272,7 +272,9 @@ class TextDecoder(nn.Module):
 
 
     def forward(self, x: Tensor, xa: Tensor,
-                text_offset: Tensor, masked_kv_caches: Tensor, cross_kv_caches: Tensor):
+                text_offset: Tensor,
+                masked_kv_caches: Optional[Tensor] = None,
+                cross_kv_caches: Optional[Tensor] = None):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
             the text tokens
@@ -304,7 +306,9 @@ class TextDecoder(nn.Module):
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
     def forwardBlocks(self, x: Tensor, xa: Tensor,
-                      text_offset: Tensor, masked_kv_caches: Tensor, cross_kv_caches: Tensor):
+                      text_offset: Tensor,
+                      masked_kv_caches: Optional[Tensor] = None,
+                      cross_kv_caches: Optional[Tensor] = None):
 
         n_ctx = x.shape[1]
         # general slice is not support in ane => generate it
@@ -316,10 +320,16 @@ class TextDecoder(nn.Module):
         new_cross_kv_caches = []
         for layer_idx, block in enumerate(self.blocks):
             # mk = masked_key_cache, ck=cross_key_cache
-            mk = masked_kv_caches[layer_idx*2]
-            mv = masked_kv_caches[layer_idx*2 + 1]
-            ck = cross_kv_caches[layer_idx*2]
-            cv = cross_kv_caches[layer_idx*2 + 1]
+            if masked_kv_caches is not None:
+                mk = masked_kv_caches[layer_idx*2]
+                mv = masked_kv_caches[layer_idx*2 + 1]
+                ck = cross_kv_caches[layer_idx*2]
+                cv = cross_kv_caches[layer_idx*2 + 1]
+            else:
+                mk = None
+                mv = None
+                ck = None
+                cv = None
             x, cross_qk, new_mk, new_mv, new_ck, new_cv = block(x,
                                                                 text_offset,
                                                                 xa,
@@ -331,13 +341,13 @@ class TextDecoder(nn.Module):
             cross_qks.append(cross_qk)
             new_masked_kv_caches.append(new_mk)
             new_masked_kv_caches.append(new_mv)
-            if text_offset == 0:
+            if masked_kv_caches is None:
                 new_cross_kv_caches.append(new_ck)
                 new_cross_kv_caches.append(new_cv)
 
         cross_qks = torch.cat(cross_qks)
         new_masked_kv_caches = torch.stack(new_masked_kv_caches)
-        if text_offset == 0:
+        if masked_kv_caches is None:
             new_cross_kv_caches = torch.stack(new_cross_kv_caches)
         else:
             new_cross_kv_caches = cross_kv_caches
@@ -378,12 +388,8 @@ class Whisper(nn.Module):
         n_ctx = self.dims.n_text_ctx
         n_state = self.dims.n_text_state
         beam_size = 5
-        masked_kv_caches = torch.empty(n_layer * 2, beam_size, n_ctx, n_state)
-        self.register_buffer("masked_kv_caches", masked_kv_caches, persistent=False)
-
-        # layer_count, 2(k&v), batch_size, n_audio_ctx, n_state=384(tiny)
-        cross_kv_caches = torch.empty(n_layer * 2, beam_size, 1500, n_state)
-        self.register_buffer("cross_kv_caches", cross_kv_caches, persistent=False)
+        self.masked_kv_caches = None
+        self.cross_kv_caches = None
 
         text_offset = torch.zeros(1, dtype=torch.int32)
         self.register_buffer("text_offset", text_offset, persistent=False)
@@ -414,6 +420,8 @@ class Whisper(nn.Module):
         self, mel: torch.Tensor, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
         #print(f"model.forward - mel.shape={mel.shape}, tokens.shape={tokens.shape}")
+        if self.text_offset == 0:
+            self.masked_kv_caches = None
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens, self.encoder(mel),
                                                                                     self.text_offset,
                                                                                     self.masked_kv_caches,

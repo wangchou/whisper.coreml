@@ -153,20 +153,26 @@ class PyTorchInference(Inference):
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
 
+        if self.model.text_offset == 0:
+            self.model.masked_kv_caches = None
+
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.model.decoder(tokens, audio_features,
                                                                                           self.model.text_offset,
                                                                                           self.model.masked_kv_caches,
                                                                                           self.model.cross_kv_caches)
+        self.model.masked_kv_caches = new_masked_kv_caches
+        if self.model.text_offset == 0:
+            self.model.cross_kv_caches = new_cross_kv_caches
+
         self.model.text_offset += output.shape[1]
         # fixed cache len to 448 for calling coreml
-        self.model.masked_kv_caches[:, :, :self.model.text_offset, :] = new_masked_kv_caches
-        self.model.cross_kv_caches = new_cross_kv_caches
         #print(f"PyTorchInference tooks {timer()-self.lastT}")
         #self.lastT = timer()
         return output, cross_qks
 
     def cleanup_caching(self):
         self.model.text_offset = torch.zeros(1, dtype=torch.int32)
+        self.masked_kv_caches = None
 
     def rearrange_kv_cache(self, source_indices):
         #startT = timer()
