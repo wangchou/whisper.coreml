@@ -14,48 +14,51 @@ n_state = 384 # tiny=384, base=512, small=768, medium=1024, large=1280
 decoder = model.decoder
 decoder.eval()
 
-#decoder block input
+# float32 -> float16 to avoid casting kv_cache in each call
+dtype1=torch.float16
+dtype2=np.float16
+
 bs = 5 # beam_size
-n_ctx = 448
-x = torch.ones((bs, 1, n_state))
+
+# input data for trace
+x = torch.ones((bs, 1, n_state), dtype=dtype1)
 text_offset = torch.ones(1, dtype=torch.int32)
-xa = torch.ones((bs, 1500, n_state))
-qk_mask = torch.ones((1, 1))
-mk = torch.ones((bs, text_offset, n_state))
-mv = torch.ones((bs, text_offset, n_state))
-ck = torch.ones((bs, 1500, n_state))
-cv = torch.ones((bs, 1500, n_state))
-
-# convert to coreml model
-#input1 = ct.TensorType(name="x", shape=ct.Shape(shape=(5,
-#                                                       ct.RangeDim(lower_bound=1, upper_bound=5, default=1),
-#                                                       n_state)))
-input1 = ct.TensorType(shape=x.shape)
-input2 = ct.TensorType(shape=text_offset.shape, dtype=np.int32)
-input3 = ct.TensorType(shape=xa.shape)
-input4 = ct.TensorType(shape=qk_mask.shape)
-#input5 = ct.TensorType(shape=mk.shape)
-#input6 = ct.TensorType(shape=mv.shape)
-input5 = ct.TensorType(shape=ct.Shape(shape=(5, ct.RangeDim(lower_bound=1, upper_bound=448, default=10), n_state)))
-input6 = ct.TensorType(shape=ct.Shape(shape=(5, ct.RangeDim(lower_bound=1, upper_bound=448, default=10), n_state)))
-input7 = ct.TensorType(shape=ck.shape)
-input8 = ct.TensorType(shape=cv.shape)
-
-#decoder block output
-output1 = ct.TensorType(name="x_output")
-output2 = ct.TensorType(name="cross_qk")
-output3 = ct.TensorType(name="new_mk")
-output4 = ct.TensorType(name="new_mv")
-output5 = ct.TensorType(name="new_ck")
-output6 = ct.TensorType(name="new_cv")
+xa = torch.ones((bs, 1500, n_state), dtype=dtype1)
+qk_mask = torch.ones((1, 1), dtype=dtype1)
+mk = torch.ones((bs, text_offset, n_state), dtype=dtype1)
+mv = torch.ones((bs, text_offset, n_state), dtype=dtype1)
+ck = torch.ones((bs, 1500, n_state), dtype=dtype1)
+cv = torch.ones((bs, 1500, n_state), dtype=dtype1)
 
 traced_decoder_block = torch.jit.trace(decoder.blocks[0], (x, text_offset, xa, qk_mask, mk, mv, ck, cv))
+
+# input types for convert
+range0to448 = ct.RangeDim(lower_bound=0, upper_bound=448, default=1)
+input1 = ct.TensorType("x", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
+input2 = ct.TensorType("text_offset", text_offset.shape, dtype=np.int32)
+input3 = ct.TensorType("xa", xa.shape, dtype=dtype2)
+input4 = ct.TensorType("qk_mask", qk_mask.shape, dtype=dtype2)
+input5 = ct.TensorType("mk", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
+input6 = ct.TensorType("mv", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
+input7 = ct.TensorType("ck", ck.shape, dtype=dtype2)
+input8 = ct.TensorType("cv", cv.shape, dtype=dtype2)
+inputs = [input1, input2, input3, input4, input5, input6, input7, input8]
+
+outputs = [ct.TensorType("x_output"),
+           ct.TensorType("cross_qk"),
+           ct.TensorType("new_mk"),
+           ct.TensorType("new_mv"),
+           ct.TensorType("new_ck"),
+           ct.TensorType("new_cv"),
+           ]
+
 decoder_block = ct.convert(
     traced_decoder_block,
     convert_to="mlprogram",
-    inputs=[input1, input2, input3, input4, input5, input6, input7, input8],
-    #outputs=[output1, output2, output3, output4, output5, output6],
+    inputs=inputs,
+    outputs=outputs,
     compute_units=ct.ComputeUnit.ALL,
+    minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
 )
 
 folder_path = f"coreml/{modelSize}"
@@ -66,19 +69,19 @@ decoder_block.save(f"{folder_path}/DecoderBlock.mlpackage")
 #decoder_block_fp16.save(f"{folder_path}/DecoderBlock.mlmodel")
 
 # test accuracy
-#torch_output = traced_decoder_block.forward([input1, input2, input3, input4, input5, input6, input7, input8])
-#print("torch model output:", torch_output)
-#melSegment = melSegment.cpu().detach().numpy()
-#coreml_output = torch.from_numpy(
-#  list(encoder_fp16.predict({'melSegment': melSegment}).values())[0]
-#)
-#print(f"coreml {modelSize} model output:", coreml_output)
-#diff = torch.abs(torch_output - coreml_output).detach()
-#print("diff avg,max:", torch.mean(diff), torch.max(diff))
+torch_output = traced_decoder_block.forward(x, text_offset, xa, qk_mask, mk, mv, ck, cv)[0]
+print("torch model output:", torch_output[0][0][:5])
+coreml_output = torch.from_numpy(
+        decoder_block.predict({'x': x,
+                               'text_offset': text_offset,
+                               'xa': xa,
+                               'qk_mask': qk_mask,
+                               'mk': mk,
+                               'mv': mv,
+                               'ck': ck,
+                               'cv': cv})['x_output']
+)
+print(f"coreml {modelSize} model output:", coreml_output[0][0][:5])
+diff = torch.abs(torch_output - coreml_output).detach()
+print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
-# note
-# convertion time on Macbook M1 Air 16GB
-# tiny:       28s
-# small:   5 mins
-# medium: 40 mins (29GB)
-# large:  crashed, use 60+GB memory after 23mins

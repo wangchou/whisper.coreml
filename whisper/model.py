@@ -33,6 +33,7 @@ class LayerNorm(nn.LayerNorm):
 
 class Linear(nn.Linear):
     def forward(self, x: Tensor) -> Tensor:
+        x = x.float()
         return F.linear(
             x,
             self.weight.to(x.dtype),
@@ -100,13 +101,13 @@ class MultiHeadAttention(nn.Module):
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
-        qk = q @ k * self.qk_scale
+        qk = q.float() @ k.float() * self.qk_scale
         if qk_mask is not None:
             qk = qk + qk_mask
         qk = qk.float()
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
-        return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
+        return (w.float() @ v.float()).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
