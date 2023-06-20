@@ -285,14 +285,35 @@ class TextDecoder(nn.Module):
             masked_kv_caches = masked_kv_caches.split(text_offset, dim=2)[0]
         offset = text_offset #next(iter(kv_cache.values())).shape[1] if kv_cache else 0
         n_batch, n_ctx = x.shape
-        qk_mask = self.mask[:n_ctx, :n_ctx]
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
+
+
+        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, text_offset, masked_kv_caches, cross_kv_caches)
+
+        logits = (
+            x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
+        ).float()
+
+        # 51865 = 5 * 11 * 23 * 41
+        # slower on cpu but faster on ANE
+        #splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
+        #x = x.view(*x.shape[:2], self.n_state)
+        #logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
+
+        return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+
+    def forwardBlocks(self, x: Tensor, xa: Tensor,
+                      text_offset: Tensor, masked_kv_caches: Tensor, cross_kv_caches: Tensor):
+
+        n_ctx = x.shape[1]
+        # general slice is not support in ane => generate it
+        #qk_mask = self.mask[:n_ctx, :n_ctx]
+        qk_mask = (torch.ones(n_ctx, n_ctx) * -99999).triu_(1)
 
         cross_qks = []
         new_masked_kv_caches = []
         new_cross_kv_caches = []
-
         for layer_idx, block in enumerate(self.blocks):
             # mk = masked_key_cache, ck=cross_key_cache
             mk = masked_kv_caches[layer_idx*2]
@@ -322,17 +343,8 @@ class TextDecoder(nn.Module):
             new_cross_kv_caches = cross_kv_caches
 
         x = self.ln(x)
-        logits = (
-            x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
-        ).float()
 
-        # 51865 = 5 * 11 * 23 * 41
-        # slower on cpu but faster on ANE
-        #splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
-        #x = x.view(*x.shape[:2], self.n_state)
-        #logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
-
-        return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
 class Whisper(nn.Module):
     def __init__(self, dims: ModelDimensions):

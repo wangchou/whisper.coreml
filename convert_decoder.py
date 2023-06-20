@@ -8,65 +8,77 @@ import numpy as np
 # model setting
 modelSize = "tiny"
 model = whisper.load_model(modelSize).cpu()
-n_state = 384 # tiny=384, base=512, small=768, medium=1024, large=1280
-n_layer = 4 # tiny = 4
+n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
+n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
+n_ctx = 448
 
 # trace model by torch.jit
 decoder = model.decoder
 decoder.eval()
-#decoder input
-# x torch.Size([5, 1])
-# xa torch.Size([5, 1500, 384])
-# text_offset 6
-# masked_kv_caches torch.Size([4, 2, 5, 448, 384])
-# cross_kv_caches torch.Size([4, 2, 5, 1500, 384])
+
+# float32 -> float16 to avoid casting kv_cache in each call
+dtype1=torch.float16
+dtype2=np.float16
+
 bs = 5 # beam_size
-n_ctx = 448
-x = torch.ones((bs, 1), dtype=torch.int32)
-xa = torch.ones((bs, 1500, n_state))
-text_offset = torch.zeros(1, dtype=torch.int32)
-masked_kv_caches = torch.ones((n_layer * 2, bs, n_ctx, n_state))
-cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state))
 
-# convert to coreml model
-#input1 = ct.TensorType(name="x", shape=ct.Shape(shape=(5,
-#                                                       ct.RangeDim(lower_bound=1, upper_bound=5, default=1),
-#                                                       n_state)))
-input1 = ct.TensorType(name="x", shape=x.shape, dtype=np.int32)
-input2 = ct.TensorType(name="xa", shape=xa.shape)
-input3 = ct.TensorType(name="text_offset", shape=text_offset.shape, dtype=np.int32)
-input4 = ct.TensorType(name="masked_kv_caches", shape=masked_kv_caches.shape)
-input5 = ct.TensorType(name="cross_kv_caches", shape=cross_kv_caches.shape)
+# input data for trace
+x = torch.ones((bs, 1, n_state), dtype=dtype1)
+xa = torch.ones((bs, 1500, n_state), dtype=dtype1)
+text_offset = torch.ones(1, dtype=torch.int32)
+masked_kv_caches = torch.ones((n_layer * 2, bs, n_ctx, n_state), dtype=dtype1)
+cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state), dtype=dtype1)
 
-traced_decoder = torch.jit.trace(decoder, (x, xa, text_offset, masked_kv_caches, cross_kv_caches))
+traced_decoder = torch.jit.trace_module(decoder, {'forwardBlocks': (x, xa, text_offset, masked_kv_caches, cross_kv_caches)})
+# ct.convert only look forward func
+traced_decoder.forward = traced_decoder.forwardBlocks
+
+# input types for convert
+range0to448 = ct.RangeDim(lower_bound=0, upper_bound=448, default=1)
+#input1 = ct.TensorType("x", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
+input1 = ct.TensorType("x", x.shape, dtype=dtype2)
+input2 = ct.TensorType("xa", xa.shape, dtype=dtype2)
+input3 = ct.TensorType("text_offset", text_offset.shape, dtype=np.int32)
+input4 = ct.TensorType("masked_kv_caches", ct.Shape((n_layer*2, bs, range0to448, n_state)), dtype=dtype2)
+input5 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=dtype2)
+inputs = [input1, input2, input3, input4, input5]
+
+outputs = [ct.TensorType("logits"),
+           ct.TensorType("cross_qk"),
+           ct.TensorType("new_masked_kv_caches"),
+           ct.TensorType("new_cross_kv_caches"),
+           ]
+
 decoder = ct.convert(
     traced_decoder,
     convert_to="mlprogram",
-    inputs=[input1, input2, input3, input4, input5],
+    inputs=inputs,
+#    outputs=outputs,
     compute_units=ct.ComputeUnit.ALL,
+    minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
 )
 
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 decoder.save(f"{folder_path}/Decoder.mlpackage")
-#decoder_fp16 = quantization_utils.quantize_weights(decoder, nbits=16)
-#decoder_fp16.save(f"{folder_path}/Decoder.mlmodel")
+#decoder_block_fp16 = quantization_utils.quantize_weights(decoder_block, nbits=16)
+#decoder_block_fp16.save(f"{folder_path}/DecoderBlock.mlmodel")
 
-# test accuracy
-#torch_output = traced_decoder_block.forward([input1, input2, input3, input4, input5, input6])
-#print("torch model output:", torch_output)
-#melSegment = melSegment.cpu().detach().numpy()
+## test accuracy
+#torch_output = traced_decoder.forward(x, xa, text_offset, qk_mask, masked_kv_caches, cross_kv_caches)[0]
+#print("torch model output:", torch_output[0][0][:5])
 #coreml_output = torch.from_numpy(
-#  list(encoder_fp16.predict({'melSegment': melSegment}).values())[0]
+#        decoder_block.predict({'x': x,
+#                               'text_offset': text_offset,
+#                               'xa': xa,
+#                               'qk_mask': qk_mask,
+#                               'mk': mk,
+#                               'mv': mv,
+#                               'ck': ck,
+#                               'cv': cv})['x_output']
 #)
-#print(f"coreml {modelSize} model output:", coreml_output)
+#print(f"coreml {modelSize} model output:", coreml_output[0][0][:5])
 #diff = torch.abs(torch_output - coreml_output).detach()
 #print("diff avg,max:", torch.mean(diff), torch.max(diff))
-
-# note
-# convertion time on Macbook M1 Air 16GB
-# tiny:       28s
-# small:   5 mins
-# medium: 40 mins (29GB)
-# large:  crashed, use 60+GB memory after 23mins
+#
