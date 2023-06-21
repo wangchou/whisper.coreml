@@ -22,27 +22,25 @@ bs = 5 # beam_size
 
 # input data for trace
 x = torch.ones((bs, 1, n_state), dtype=dtype1)
-text_offset = torch.ones(1, dtype=torch.int32)
 xa = torch.ones((bs, 1500, n_state), dtype=dtype1)
 qk_mask = torch.ones((1, 1), dtype=dtype1)
-mk = torch.ones((bs, text_offset, n_state), dtype=dtype1)
-mv = torch.ones((bs, text_offset, n_state), dtype=dtype1)
+mk = torch.ones((bs, 1, n_state), dtype=dtype1)
+mv = torch.ones((bs, 1, n_state), dtype=dtype1)
 ck = torch.ones((bs, 1500, n_state), dtype=dtype1)
 cv = torch.ones((bs, 1500, n_state), dtype=dtype1)
 
-traced_decoder_block = torch.jit.trace(decoder.blocks[0], (x, text_offset, xa, qk_mask, mk, mv, ck, cv))
+traced_decoder_block = torch.jit.trace(decoder.blocks[0], (x, xa, qk_mask, mk, mv, ck, cv))
 
 # input types for convert
 range0to448 = ct.RangeDim(lower_bound=0, upper_bound=448, default=1)
 input1 = ct.TensorType("x", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
-input2 = ct.TensorType("text_offset", text_offset.shape, dtype=np.int32)
-input3 = ct.TensorType("xa", xa.shape, dtype=dtype2)
-input4 = ct.TensorType("qk_mask", qk_mask.shape, dtype=dtype2)
-input5 = ct.TensorType("mk", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
-input6 = ct.TensorType("mv", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
-input7 = ct.TensorType("ck", ck.shape, dtype=dtype2)
-input8 = ct.TensorType("cv", cv.shape, dtype=dtype2)
-inputs = [input1, input2, input3, input4, input5, input6, input7, input8]
+input2 = ct.TensorType("xa", xa.shape, dtype=dtype2)
+input3 = ct.TensorType("qk_mask", qk_mask.shape, dtype=dtype2)
+input4 = ct.TensorType("mk", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
+input5 = ct.TensorType("mv", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
+input6 = ct.TensorType("ck", ck.shape, dtype=dtype2)
+input7 = ct.TensorType("cv", cv.shape, dtype=dtype2)
+inputs = [input1, input2, input3, input4, input5, input6, input7]
 
 outputs = [ct.TensorType("x_output"),
            ct.TensorType("cross_qk"),
@@ -69,11 +67,10 @@ decoder_block.save(f"{folder_path}/DecoderBlock.mlpackage")
 #decoder_block_fp16.save(f"{folder_path}/DecoderBlock.mlmodel")
 
 # test accuracy
-torch_output = traced_decoder_block.forward(x, text_offset, xa, qk_mask, mk, mv, ck, cv)[0]
+torch_output = traced_decoder_block.forward(x, xa, qk_mask, mk, mv, ck, cv)[0]
 print("torch model output:", torch_output[0][0][:5])
 coreml_output = torch.from_numpy(
         decoder_block.predict({'x': x,
-                               'text_offset': text_offset,
                                'xa': xa,
                                'qk_mask': qk_mask,
                                'mk': mk,

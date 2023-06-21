@@ -25,23 +25,21 @@ bs = 5 # beam_size
 # input data for trace
 x = torch.ones((bs, 1, n_state), dtype=dtype1)
 xa = torch.ones((bs, 1500, n_state), dtype=dtype1)
-text_offset = torch.ones(1, dtype=torch.int32)
 masked_kv_caches = torch.ones((n_layer * 2, bs, n_ctx, n_state), dtype=dtype1)
 cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state), dtype=dtype1)
 
-traced_decoder = torch.jit.trace_module(decoder, {'forwardBlocks': (x, xa, text_offset, masked_kv_caches, cross_kv_caches)})
+traced_decoder = torch.jit.trace_module(decoder, {'forwardBlocks': (x, xa, masked_kv_caches, cross_kv_caches)})
 # ct.convert only look forward func
 traced_decoder.forward = traced_decoder.forwardBlocks
 
 # input types for convert
-range0to448 = ct.RangeDim(lower_bound=0, upper_bound=448, default=1)
+range0to448 = ct.RangeDim(lower_bound=1, upper_bound=448, default=1)
 #input1 = ct.TensorType("x", ct.Shape((bs, range0to448, n_state)), dtype=dtype2)
 input1 = ct.TensorType("x", x.shape, dtype=dtype2)
 input2 = ct.TensorType("xa", xa.shape, dtype=dtype2)
-input3 = ct.TensorType("text_offset", text_offset.shape, dtype=np.int32)
-input4 = ct.TensorType("masked_kv_caches", ct.Shape((n_layer*2, bs, range0to448, n_state)), dtype=dtype2)
-input5 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=dtype2)
-inputs = [input1, input2, input3, input4, input5]
+input3 = ct.TensorType("masked_kv_caches", ct.Shape((n_layer*2, bs, range0to448, n_state)), dtype=dtype2)
+input4 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=dtype2)
+inputs = [input1, input2, input3, input4]
 
 outputs = [ct.TensorType("logits"),
            ct.TensorType("cross_qk"),
@@ -57,6 +55,13 @@ decoder = ct.convert(
     compute_units=ct.ComputeUnit.ALL,
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
 )
+
+# set some input to optional
+# https://github.com/apple/coremltools/issues/388
+#spec = decoder.get_spec()
+#spec.description.input[2].type.isOptional = True
+#spec.description.input[3].type.isOptional = True
+#decoder = ct.models.MLModel(spec, weights_dir=decoder.weights_dir)
 
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):

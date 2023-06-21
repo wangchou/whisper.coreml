@@ -72,7 +72,6 @@ class MultiHeadAttention(nn.Module):
         x: Tensor,
         xa: Optional[Tensor] = None,
         qk_mask: Optional[Tensor] = None,
-        text_offset: Optional[Tensor] = None,
         cache_k: Optional[Tensor] = None,
         cache_v: Optional[Tensor] = None,
     ):
@@ -130,7 +129,6 @@ class ResidualAttentionBlock(nn.Module):
     def forward(
         self,
         x: Tensor,
-        text_offset: Tensor,
         xa: Optional[Tensor] = None,
         qk_mask: Optional[Tensor] = None,
         mk: Optional[Tensor] = None,
@@ -138,11 +136,11 @@ class ResidualAttentionBlock(nn.Module):
         ck: Optional[Tensor] = None,
         cv: Optional[Tensor] = None,
     ):
-        x_out, masked_qk, new_mk, new_mv = self.attn(self.attn_ln(x), qk_mask=qk_mask, text_offset=text_offset, cache_k=mk, cache_v=mv)
+        x_out, masked_qk, new_mk, new_mv = self.attn(self.attn_ln(x), qk_mask=qk_mask, cache_k=mk, cache_v=mv)
         x = x + x_out
         cross_qk = None
         if self.cross_attn:
-            x_out, cross_qk, new_ck, new_cv = self.cross_attn(self.cross_attn_ln(x), xa, text_offset=text_offset, cache_k=ck, cache_v=cv)
+            x_out, cross_qk, new_ck, new_cv = self.cross_attn(self.cross_attn_ln(x), xa, cache_k=ck, cache_v=cv)
             x = x + x_out
         x = x + self.mlp(self.mlp_ln(x))
         return x, cross_qk, new_mk, new_mv, new_ck, new_cv
@@ -272,7 +270,6 @@ class TextDecoder(nn.Module):
 
 
     def forward(self, x: Tensor, xa: Tensor,
-                text_offset: Tensor,
                 masked_kv_caches: Optional[Tensor] = None,
                 cross_kv_caches: Optional[Tensor] = None):
         """
@@ -281,32 +278,21 @@ class TextDecoder(nn.Module):
         xa : torch.Tensor, shape = (batch_size, n_mels, n_audio_ctx)
             the encoded audio features to be attended on
         """
-        #print(f"x {x.shape}, xa {xa.shape}, text_offset {text_offset}, masked_kv_caches {masked_kv_caches.shape}, cross_kv_caches {cross_kv_caches.shape}")
-
-        if text_offset > 0:
-            masked_kv_caches = masked_kv_caches.split(text_offset, dim=2)[0]
-        offset = text_offset #next(iter(kv_cache.values())).shape[1] if kv_cache else 0
+        offset = masked_kv_caches.shape[2] if masked_kv_caches is not None else 0
         n_batch, n_ctx = x.shape
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
 
 
-        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, text_offset, masked_kv_caches, cross_kv_caches)
+        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, masked_kv_caches, cross_kv_caches)
 
         logits = (
             x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
         ).float()
 
-        # 51865 = 5 * 11 * 23 * 41
-        # slower on cpu but faster on ANE
-        #splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
-        #x = x.view(*x.shape[:2], self.n_state)
-        #logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
-
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
     def forwardBlocks(self, x: Tensor, xa: Tensor,
-                      text_offset: Tensor,
                       masked_kv_caches: Optional[Tensor] = None,
                       cross_kv_caches: Optional[Tensor] = None):
 
@@ -330,20 +316,13 @@ class TextDecoder(nn.Module):
                 mv = None
                 ck = None
                 cv = None
-            x, cross_qk, new_mk, new_mv, new_ck, new_cv = block(x,
-                                                                text_offset,
-                                                                xa,
-                                                                qk_mask=qk_mask,
-                                                                mk=mk,
-                                                                mv=mv,
-                                                                ck=ck,
-                                                                cv=cv)
+            x, cross_qk, new_mk, new_mv, new_ck, new_cv = block(x, xa, qk_mask, mk, mv, ck, cv)
+
             cross_qks.append(cross_qk)
             new_masked_kv_caches.append(new_mk)
             new_masked_kv_caches.append(new_mv)
-            if masked_kv_caches is None:
-                new_cross_kv_caches.append(new_ck)
-                new_cross_kv_caches.append(new_cv)
+            new_cross_kv_caches.append(new_ck)
+            new_cross_kv_caches.append(new_cv)
 
         cross_qks = torch.cat(cross_qks)
         new_masked_kv_caches = torch.stack(new_masked_kv_caches)
@@ -381,18 +360,8 @@ class Whisper(nn.Module):
         all_heads[self.dims.n_text_layer // 2 :] = True
         self.register_buffer("alignment_heads", all_heads.to_sparse(), persistent=False)
 
-        ###########################
-        # Make decoder passing kv_caches
-        # layer_count, 2(k&v), batch_size, n_ctx = 448, n_state=384(tiny)
-        n_layer = self.dims.n_text_layer
-        n_ctx = self.dims.n_text_ctx
-        n_state = self.dims.n_text_state
-        beam_size = 5
         self.masked_kv_caches = None
         self.cross_kv_caches = None
-
-        text_offset = torch.zeros(1, dtype=torch.int32)
-        self.register_buffer("text_offset", text_offset, persistent=False)
 
     def set_alignment_heads(self, dump: bytes):
         array = np.frombuffer(
@@ -403,37 +372,29 @@ class Whisper(nn.Module):
         )
         self.register_buffer("alignment_heads", mask.to_sparse(), persistent=False)
 
-    def embed_audio(self, mel: torch.Tensor):
-        return self.encoder(mel)
-
-    def logits(self, tokens: torch.Tensor, audio_features: torch.Tensor):
-        output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens, self.encoder(mel),
-                                                                                    self.text_offset,
-                                                                                    self.masked_kv_caches,
-                                                                                    self.cross_kv_caches,
-                                                                                    )
-        self.masked_kv_caches = new_masked_kv_caches
-        self.cross_kv_caches = new_cross_kv_caches
-        return output, cross_qks
+# unuse funcs called??
+#    def embed_audio(self, mel: torch.Tensor):
+#        return self.encoder(mel)
+#
+#    def logits(self, tokens: torch.Tensor, audio_features: torch.Tensor):
+#        output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens, self.encoder(mel),
+#                                                                                    self.masked_kv_caches,
+#                                                                                    self.cross_kv_caches,
+#                                                                                    )
+#        self.masked_kv_caches = new_masked_kv_caches
+#        self.cross_kv_caches = new_cross_kv_caches
+#        return output, cross_qks
 
     def forward(
         self, mel: torch.Tensor, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        #print(f"model.forward - mel.shape={mel.shape}, tokens.shape={tokens.shape}")
-        if self.text_offset == 0:
-            self.masked_kv_caches = None
-        output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens, self.encoder(mel),
-                                                                                    self.text_offset,
+        output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens,
+                                                                                    self.encoder(mel),
                                                                                     self.masked_kv_caches,
-                                                                                    self.cross_kv_caches,
-                                                                                    )
+                                                                                    self.cross_kv_caches)
         # this only called once in each add_word_timestamps,
         # => no next call
-        # => no need for cache
-        # and change text_offset cause error in next call from PyTorchInference
-        #self.masked_kv_caches = new_masked_kv_caches
-        #self.cross_kv_caches = new_cross_kv_caches
-        #self.text_offset += output.shape[1]
+        # => no need for update self.xxx_cache
         return output, cross_qks
 
     @property

@@ -145,7 +145,6 @@ class PyTorchInference(Inference):
         self.model: "Whisper" = model
         self.initial_token_length = initial_token_length
         self.n_text_layer = model.dims.n_text_layer
-        #self.lastT = timer()
 
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
         #startT = timer()
@@ -153,33 +152,24 @@ class PyTorchInference(Inference):
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
 
-        if self.model.text_offset == 0:
-            self.model.masked_kv_caches = None
-
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.model.decoder(tokens, audio_features,
-                                                                                          self.model.text_offset,
                                                                                           self.model.masked_kv_caches,
                                                                                           self.model.cross_kv_caches)
         self.model.masked_kv_caches = new_masked_kv_caches
-        if self.model.text_offset == 0:
+        if self.model.cross_kv_caches is None:
             self.model.cross_kv_caches = new_cross_kv_caches
 
-        self.model.text_offset += output.shape[1]
-        # fixed cache len to 448 for calling coreml
-        #print(f"PyTorchInference tooks {timer()-self.lastT}")
-        #self.lastT = timer()
+        #print(f"PyTorchInference tooks {timer()-startT}")
         return output, cross_qks
 
     def cleanup_caching(self):
-        self.model.text_offset = torch.zeros(1, dtype=torch.int32)
-        self.masked_kv_caches = None
+        self.model.masked_kv_caches = None
+        self.model.cross_kv_caches = None
 
     def rearrange_kv_cache(self, source_indices):
         #startT = timer()
-        # torch.Size([4, 2, 5, 448, 384])
         is_same_order = source_indices == list(range(len(source_indices)))
 
-        #print(source_indices, is_same_order)
         if not is_same_order:
             for i in range(0, self.n_text_layer * 2):
                 self.model.masked_kv_caches[i] = self.model.masked_kv_caches[i][source_indices]
