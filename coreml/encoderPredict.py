@@ -4,7 +4,7 @@ import ctypes
 from ctypes import cdll, c_double, c_uint, c_float, c_char_p, c_void_p, POINTER
 
 # call loadModel
-encoderObj = cdll.LoadLibrary('./tiny/objcWrapper.so')
+encoderObj = cdll.LoadLibrary('./tiny/encoderWrapper.so')
 encoderObj.loadModel.argtypes = [c_char_p]
 encoderObj.loadModel.restype = c_void_p
 

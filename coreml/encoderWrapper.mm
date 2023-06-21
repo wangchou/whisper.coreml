@@ -1,6 +1,6 @@
 #import <CoreML/CoreML.h>
 #import <Accelerate/Accelerate.h>
-#import "objcWrapper.h"
+#import "encoderWrapper.h"
 #import "CoremlEncoder.h"
 #include <stdlib.h>
 

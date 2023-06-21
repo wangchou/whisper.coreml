@@ -166,7 +166,7 @@ class CoremlEncoder():
     def loadModel(self):
         if self.mlmodel_handle == None:
             modelSize = self.getModelSize(self.n_state)
-            self.encoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/objcWrapper.so')
+            self.encoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/encoderWrapper.so')
             self.encoderObj.loadModel.argtypes = [c_char_p]
             self.encoderObj.loadModel.restype = c_void_p
             c_string = bytes(f'./coreml/{modelSize}/CoremlEncoder.mlmodelc', 'ascii')
@@ -342,6 +342,7 @@ class TextDecoder(nn.Module):
 
         x = self.ln(x)
 
+        # print(f"x {x.shape}, cross_qks {cross_qks.shape}, new_masked_kv_caches {new_masked_kv_caches.shape}, new_cross_kv_caches {new_cross_kv_caches.shape}")
         return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
 class Whisper(nn.Module):
