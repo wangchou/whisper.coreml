@@ -77,10 +77,16 @@ class MultiHeadAttention(nn.Module):
     ):
         q = self.query(x)
 
+        # new part of k, without previous cache
+        # zeros is for dummy output, because coreml don't accept None as return value
+        new_k = torch.zeros(1)
+        new_v = torch.zeros(1)
         if cache_k is None or xa is None:
             k = self.key(x if xa is None else xa)
             v = self.value(x if xa is None else xa)
 
+            new_k = k
+            new_v = v
             # only for self masked attention
             if qk_mask is not None and cache_k is not None:
                 k = torch.cat([cache_k, k], dim=1)
@@ -91,7 +97,7 @@ class MultiHeadAttention(nn.Module):
             v = cache_v
 
         wv, qk = self.qkv_attention(q, k, v, qk_mask)
-        return self.out(wv), qk.detach(), k, v
+        return self.out(wv), qk.detach(), new_k, new_v
 
     def qkv_attention(
         self, q: Tensor, k: Tensor, v: Tensor, qk_mask: Optional[Tensor] = None
@@ -329,7 +335,10 @@ class TextDecoder(nn.Module):
         if masked_kv_caches is None:
             new_cross_kv_caches = torch.stack(new_cross_kv_caches)
         else:
-            new_cross_kv_caches = cross_kv_caches
+            # this speed up coreml a lot by avoiding big matrix of [8, 5, 1500, 384]
+            # coreml do not support return None?
+            # we probably will apply similar approach for only returns new part of new_masked_kv_cache
+            new_cross_kv_caches = torch.zeros(1)
 
         x = self.ln(x)
 

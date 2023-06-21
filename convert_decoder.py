@@ -10,7 +10,7 @@ modelSize = "tiny"
 model = whisper.load_model(modelSize).cpu()
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
-n_ctx = 448
+text_offset = 10
 
 # trace model by torch.jit
 decoder = model.decoder
@@ -25,7 +25,7 @@ bs = 5 # beam_size
 # input data for trace
 x = torch.ones((bs, 1, n_state), dtype=dtype1)
 xa = torch.ones((bs, 1500, n_state), dtype=dtype1)
-masked_kv_caches = torch.ones((n_layer * 2, bs, n_ctx, n_state), dtype=dtype1)
+masked_kv_caches = torch.ones((n_layer * 2, bs, text_offset, n_state), dtype=dtype1)
 cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state), dtype=dtype1)
 
 traced_decoder = torch.jit.trace_module(decoder, {'forwardBlocks': (x, xa, masked_kv_caches, cross_kv_caches)})

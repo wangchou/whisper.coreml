@@ -155,9 +155,13 @@ class PyTorchInference(Inference):
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.model.decoder(tokens, audio_features,
                                                                                           self.model.masked_kv_caches,
                                                                                           self.model.cross_kv_caches)
-        self.model.masked_kv_caches = new_masked_kv_caches
-        if self.model.cross_kv_caches is None:
+        if self.model.masked_kv_caches is None:
             self.model.cross_kv_caches = new_cross_kv_caches
+            self.model.masked_kv_caches = new_masked_kv_caches
+        else:
+            self.model.masked_kv_caches = torch.cat([self.model.masked_kv_caches,
+                                                     new_masked_kv_caches],
+                                                    dim=2)
 
         #print(f"PyTorchInference tooks {timer()-startT}")
         return output, cross_qks
