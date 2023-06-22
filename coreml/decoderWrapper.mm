@@ -1,5 +1,6 @@
 #import <CoreML/CoreML.h>
 #import <Accelerate/Accelerate.h>
+#import <QuartzCore/QuartzCore.h>
 #import "decoderWrapper.h"
 #import "CoremlDecoder.h"
 #include <stdlib.h>
@@ -34,12 +35,16 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state) {
     NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
 
     NSError *error = nil;
-    const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL error:&error]);
+    MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
+    // MLComputeUnitsCPUOnly, MLComputeUnitsCPUAndGPU, MLComputeUnitsAll,  MLComputeUnitsCPUAndNeuralEngine
+    config.computeUnits = 3;//MLComputeUnitsCPUAndNeuralEngine;
+    const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
+    //const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL error:&error]);
     if(error) {
       NSLog(@"Error load model from %s, %@", modelPath, error);
-    } else {
-      NSLog(@"load model success");
-    }
+    } //else {
+      //NSLog(@"load model success");
+    //}
 
     x_fp16 = (uint16 *) malloc(sizeof(uint16) * 5 * n_state);
     xa_fp16 = (uint16 *) malloc(sizeof(uint16) * 5 * 1500 * n_state);
@@ -62,8 +67,10 @@ void predictWith(
     float* out_new_masked_kv_caches,
     float* out_new_cross_kv_caches
 ) {
-    float32ToFloat16(x, x_fp16, 5 * n_state);
 
+    NSLog(@"predictWith text_offset=%d", text_offset);
+    CFTimeInterval startT = CACurrentMediaTime();
+    float32ToFloat16(x, x_fp16, 5 * n_state);
     MLMultiArray *inX = [[MLMultiArray alloc]
         initWithDataPointer: x_fp16
         shape: @[@5, @1, @(n_state)]
@@ -102,14 +109,16 @@ void predictWith(
         deallocator: nil
         error: nil
     ];
+    NSLog(@"1 %f", CACurrentMediaTime() - startT);
 
     NSError *error = nil;
     CoremlDecoderOutput *output = [(__bridge id)model predictionFromX:inX xa:inXa masked_kv_caches:inMkv cross_kv_caches:inCkv error:&error];
+    NSLog(@"2 %f", CACurrentMediaTime() - startT);
     if(error) {
       NSLog(@"%@", error);
-    } else {
-      NSLog(@"prediction success");
-    }
+    } //else {
+      //NSLog(@"prediction success");
+    //}
 
    //NSLog(@"%@", output.out_x);
    // cblas_scopy((int)output.out_x.count,
@@ -119,6 +128,7 @@ void predictWith(
    float16ToFloat32((uint16*)output.out_cross_qks.dataPointer, out_cross_qks, output.out_cross_qks.count);
    float16ToFloat32((uint16*)output.out_new_masked_kv_caches.dataPointer, out_new_masked_kv_caches, output.out_new_masked_kv_caches.count);
    float16ToFloat32((uint16*)output.out_new_cross_kv_caches.dataPointer, out_new_cross_kv_caches, output.out_new_cross_kv_caches.count);
+   NSLog(@"3 %f", CACurrentMediaTime() - startT);
 }
 
 void rearrangeKvCache() {}

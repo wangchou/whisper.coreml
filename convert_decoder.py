@@ -31,7 +31,7 @@ traced_decoder = torch.jit.trace_module(decoder,
 traced_decoder.forward = traced_decoder.forwardBlocks
 
 # input types for convert
-range1to448 = ct.RangeDim(lower_bound=1, upper_bound=448, default=1)
+range1to448 = ct.RangeDim(lower_bound=1, upper_bound=448, default=10)
 input1 = ct.TensorType("x", x.shape, dtype=dtype2)
 input2 = ct.TensorType("xa", xa.shape, dtype=dtype2)
 input3 = ct.TensorType("masked_kv_caches", ct.Shape((n_layer*2, bs, range1to448, n_state)), dtype=dtype2)

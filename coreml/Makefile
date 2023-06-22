@@ -12,7 +12,7 @@ tiny/decoderWrapper.so: decoderWrapper.h decoderWrapper.mm
 	cp decoderWrapper* ${@D}
 	xcrun coremlc compile ${@D}/CoremlDecoder.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlDecoder.mlpackage ${@D}
-	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoderWrapper.mm ${@D}/CoremlDecoder.m -o ${@D}/decoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoderWrapper.mm ${@D}/CoremlDecoder.m -o ${@D}/decoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 clean:
 	rm tiny/decoderWrapper.so
