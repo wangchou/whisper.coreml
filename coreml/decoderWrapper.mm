@@ -37,7 +37,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state) {
     NSError *error = nil;
     MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
     // MLComputeUnitsCPUOnly, MLComputeUnitsCPUAndGPU, MLComputeUnitsAll,  MLComputeUnitsCPUAndNeuralEngine
-    config.computeUnits = 3;//MLComputeUnitsCPUAndNeuralEngine;
+    config.computeUnits = 1;//MLComputeUnitsCPUAndNeuralEngine;
     const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
     //const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL error:&error]);
     if(error) {
@@ -69,7 +69,6 @@ void predictWith(
 ) {
 
     NSLog(@"predictWith text_offset=%d", text_offset);
-    CFTimeInterval startT = CACurrentMediaTime();
     float32ToFloat16(x, x_fp16, 5 * n_state);
     MLMultiArray *inX = [[MLMultiArray alloc]
         initWithDataPointer: x_fp16
@@ -109,16 +108,19 @@ void predictWith(
         deallocator: nil
         error: nil
     ];
-    NSLog(@"1 %f", CACurrentMediaTime() - startT);
 
     NSError *error = nil;
-    CoremlDecoderOutput *output = [(__bridge id)model predictionFromX:inX xa:inXa masked_kv_caches:inMkv cross_kv_caches:inCkv error:&error];
-    NSLog(@"2 %f", CACurrentMediaTime() - startT);
-    if(error) {
-      NSLog(@"%@", error);
-    } //else {
-      //NSLog(@"prediction success");
-    //}
+    CoremlDecoderOutput *output;
+    for(int i=0; i<5; i++) {
+        CFTimeInterval startT = CACurrentMediaTime();
+        output = [(__bridge id)model predictionFromX:inX xa:inXa masked_kv_caches:inMkv cross_kv_caches:inCkv error:&error];
+        NSLog(@"%d time %f", i, CACurrentMediaTime() - startT);
+
+        if(error) {
+            NSLog(@"%@", error);
+        }
+    }
+
 
    //NSLog(@"%@", output.out_x);
    // cblas_scopy((int)output.out_x.count,
@@ -128,7 +130,6 @@ void predictWith(
    float16ToFloat32((uint16*)output.out_cross_qks.dataPointer, out_cross_qks, output.out_cross_qks.count);
    float16ToFloat32((uint16*)output.out_new_masked_kv_caches.dataPointer, out_new_masked_kv_caches, output.out_new_masked_kv_caches.count);
    float16ToFloat32((uint16*)output.out_new_cross_kv_caches.dataPointer, out_new_cross_kv_caches, output.out_new_cross_kv_caches.count);
-   NSLog(@"3 %f", CACurrentMediaTime() - startT);
 }
 
 void rearrangeKvCache() {}

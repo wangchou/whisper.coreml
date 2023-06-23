@@ -18,8 +18,14 @@ int main() {
     int bs = 5;
     int n_head = 6; // tiny=6, base=8, small=12, medium=16, large=20
     int text_offset = 10; // only for test
-                          //
     const void* decoder = loadModel("./tiny/CoremlDecoder.mlmodelc", n_layer, n_state);
+    // small model
+    //int n_layer = 12;
+    //int n_state = 768;
+    //int bs = 5;
+    //int n_head = 12; // tiny=6, base=8, small=12, medium=16, large=20
+    //int text_offset = 10; // only for test
+    //const void* decoder = loadModel("./small/CoremlDecoder.mlmodelc", n_layer, n_state);
 
     float* x = getOnes(bs * n_state); // (bs, 1, n_state)
     float* xa = getOnes(bs * 1500 * n_state); // (bs, 1500, n_state)

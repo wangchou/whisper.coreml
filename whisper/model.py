@@ -387,13 +387,13 @@ class TextDecoder(nn.Module):
 
         ############################
         # Coreml Decoder part
-        if masked_kv_caches is not None and x.shape[1] == 1:
-            #startT = timer()
-            if self.coremlDecoder == None:
-                self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state)
-            x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, masked_kv_caches, cross_kv_caches)
-            #print(f"\tcoreml decoder took {timer() - startT:.3f}")
-            return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        #if masked_kv_caches is not None and x.shape[1] == 1:
+        #    #startT = timer()
+        #    if self.coremlDecoder == None:
+        #        self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state)
+        #    x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, masked_kv_caches, cross_kv_caches)
+        #    #print(f"\tcoreml decoder took {timer() - startT:.3f}")
+        #    return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
         ###########################3
 
         n_ctx = x.shape[1]
