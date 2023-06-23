@@ -18,7 +18,7 @@ int main() {
     int bs = 5;
     int n_head = 6; // tiny=6, base=8, small=12, medium=16, large=20
     int text_offset = 10; // only for test
-    const void* decoder = loadModel("./tiny/CoremlDecoder.mlmodelc", n_layer, n_state);
+    const void* decoder = loadModel("./tiny/CoremlDecoder.mlmodelc", n_layer, n_state, n_state);
     // small model
     //int n_layer = 12;
     //int n_state = 768;
@@ -39,7 +39,7 @@ int main() {
 
     predictWith(decoder, // model
                 x, xa, masked_kv_caches, cross_kv_caches, // input
-                n_layer, n_state, text_offset, // context parameter
+                n_layer, n_state, n_head, text_offset, // context parameter
                 out_x, out_cross_qks, out_new_masked_kv_caches, out_new_cross_kv_caches // outputs
                 );
 

@@ -2,7 +2,7 @@
 extern "C" {
 #endif
 
-const void* loadModel(const char* modelPath, int n_layer, int n_state);
+const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head);
 void closeModel(const void* model);
 void predictWith(
     const void* model,
@@ -12,6 +12,7 @@ void predictWith(
     float* cross_kv_caches, // (n_layer * 2, bs, 1500, n_state)
     int n_layer,
     int n_state,
+    int n_head,
     int text_offset,
     //int n_head, // tiny=6, base=8, small=12, medium=16, large=20
     float* out_x, // (bs, 1, n_state)

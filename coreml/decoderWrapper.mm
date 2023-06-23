@@ -21,36 +21,78 @@ void float16ToFloat32(const uint16* fp16, float* fp32, int count) {
     }
 }
 
+// in
 uint16* x_fp16;
 uint16* xa_fp16;
 uint16* mkv_fp16;
 uint16* ckv_fp16;
 
+// out
+uint16* out_x_fp16;
+uint16* out_qks_fp16;
+uint16* out_mkv_fp16;
+uint16* out_ckv_fp16;
+
 #if __cplusplus
 extern "C" {
 #endif
 
-const void* loadModel(const char* modelPath, int n_layer, int n_state) {
+const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head) {
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
 
     NSError *error = nil;
     MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
     // MLComputeUnitsCPUOnly, MLComputeUnitsCPUAndGPU, MLComputeUnitsAll,  MLComputeUnitsCPUAndNeuralEngine
-    config.computeUnits = 1;//MLComputeUnitsCPUAndNeuralEngine;
+    config.computeUnits = 3;
     const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
-    //const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL error:&error]);
     if(error) {
       NSLog(@"Error load model from %s, %@", modelPath, error);
-    } //else {
-      //NSLog(@"load model success");
-    //}
+    }
 
     x_fp16 = (uint16 *) malloc(sizeof(uint16) * 5 * n_state);
     xa_fp16 = (uint16 *) malloc(sizeof(uint16) * 5 * 1500 * n_state);
     mkv_fp16 = (uint16 *) malloc(sizeof(uint16) * n_layer * 2 * 5 * 448 * n_state);  // 1/3 of ckv_fp16
     ckv_fp16 = (uint16 *) malloc(sizeof(uint16) * n_layer * 2 * 5 * 1500 * n_state); // tiny~=46MB, small~=270MB, large ~= 1.2GB
+
+    out_x_fp16 = (uint16 *) malloc(sizeof(uint16) * 5 * n_state);
+    out_qks_fp16 = (uint16 *) malloc(sizeof(uint16) * n_layer * 5 * n_head * 1500);
+    out_mkv_fp16 = (uint16 *) malloc(sizeof(uint16) * n_layer * 2 * 5 * n_state);  // 1/3 of ckv_fp16
+    out_ckv_fp16 = (uint16 *) malloc(sizeof(uint16)); // tiny~=46MB, small~=270MB, large ~= 1.2GB
     return model;
+}
+
+MLMultiArray* getArray1(void* dataPtr, int dim1, MLMultiArrayDataType dataType) {
+    return [[MLMultiArray alloc]
+        initWithDataPointer: dataPtr
+        shape: @[@(dim1)]
+        dataType: dataType
+        strides: @[@1]
+        deallocator: nil
+        error: nil
+    ];
+}
+
+MLMultiArray* getArray3(void* dataPtr, int dim1, int dim2, int dim3, MLMultiArrayDataType dataType) {
+    return [[MLMultiArray alloc]
+        initWithDataPointer: dataPtr
+        shape: @[@(dim1), @(dim2), @(dim3)]
+        dataType: dataType
+        strides: @[@(dim2*dim3), @(dim3), @1]
+        deallocator: nil
+        error: nil
+    ];
+}
+
+MLMultiArray* getArray4(void* dataPtr, int dim1, int dim2, int dim3, int dim4, MLMultiArrayDataType dataType) {
+    return [[MLMultiArray alloc]
+        initWithDataPointer: dataPtr
+        shape: @[@(dim1), @(dim2), @(dim3), @(dim4)]
+        dataType: dataType
+        strides: @[@(dim2*dim3*dim4), @(dim3*dim4), @(dim4), @1]
+        deallocator: nil
+        error: nil
+    ];
 }
 
 void predictWith(
@@ -61,6 +103,7 @@ void predictWith(
     float* cross_kv_caches, // (n_layer * 2, bs, 1500, n_state)
     int n_layer,
     int n_state,
+    int n_head,
     int text_offset,
     float* out_x,
     float* out_cross_qks,
@@ -69,51 +112,42 @@ void predictWith(
 ) {
 
     NSLog(@"predictWith text_offset=%d", text_offset);
+
+    // input arrays
     float32ToFloat16(x, x_fp16, 5 * n_state);
-    MLMultiArray *inX = [[MLMultiArray alloc]
-        initWithDataPointer: x_fp16
-        shape: @[@5, @1, @(n_state)]
-        dataType: MLMultiArrayDataTypeFloat16
-        strides: @[@(n_state), @(n_state), @1]
-        deallocator: nil
-        error: nil
-    ];
+    MLMultiArray *inX = getArray3(x_fp16, 5, 1, n_state, MLMultiArrayDataTypeFloat16);
 
     float32ToFloat16(xa, xa_fp16, 5 * 1500 * n_state);
-    MLMultiArray *inXa = [[MLMultiArray alloc]
-        initWithDataPointer: xa_fp16
-        shape: @[@5, @1500, @(n_state)]
-        dataType: MLMultiArrayDataTypeFloat16
-        strides: @[@(n_state*1500), @(n_state), @1]
-        deallocator: nil
-        error: nil
-    ];
+    MLMultiArray *inXa = getArray3(xa_fp16, 5, 1500, n_state, MLMultiArrayDataTypeFloat16);
 
     float32ToFloat16(masked_kv_caches, mkv_fp16, n_layer * 2 * 5 * text_offset * n_state);
-    MLMultiArray *inMkv = [[MLMultiArray alloc]
-        initWithDataPointer: mkv_fp16
-        shape: @[@(n_layer*2), @5, @(text_offset), @(n_state)]
-        dataType: MLMultiArrayDataTypeFloat16
-        strides: @[@(5*text_offset*n_state), @(n_state*text_offset), @(n_state), @1]
-        deallocator: nil
-        error: nil
-    ];
+    MLMultiArray *inMkv = getArray4(mkv_fp16, n_layer*2, 5, text_offset, n_state, MLMultiArrayDataTypeFloat16);
 
     float32ToFloat16(cross_kv_caches, ckv_fp16, n_layer * 2 * 5 * 1500 * n_state);
-    MLMultiArray *inCkv = [[MLMultiArray alloc]
-        initWithDataPointer: ckv_fp16
-        shape: @[@(n_layer*2), @5, @1500, @(n_state)]
-        dataType: MLMultiArrayDataTypeFloat16
-        strides: @[@(5*1500*n_state), @(n_state*1500), @(n_state), @1]
-        deallocator: nil
-        error: nil
-    ];
+    MLMultiArray *inCkv = getArray4(ckv_fp16, n_layer*2, 5, 1500, n_state, MLMultiArrayDataTypeFloat16);
+
+    CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX xa:inXa masked_kv_caches:inMkv cross_kv_caches:inCkv];
+
+    // output arrays
+    MLMultiArray *outX = getArray3(out_x_fp16, 5, 1, n_state, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *outQKs = getArray4(out_qks_fp16, n_layer*5, n_head, 1, 1500, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *outMKV = getArray4(out_mkv_fp16, n_layer*2, 5, 1, n_state, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *outCKV = getArray1(out_ckv_fp16, 1, MLMultiArrayDataTypeFloat16);
+    MLPredictionOptions* options = [MLPredictionOptions alloc];
+
+    NSDictionary *outputBackings = @{
+        @"out_x":outX,
+        @"out_cross_qks":outQKs,
+        @"out_new_masked_kv_caches":outMKV,
+        @"out_new_cross_kv_caches":outCKV
+    };
+    [options setOutputBackings:outputBackings];
 
     NSError *error = nil;
     CoremlDecoderOutput *output;
     for(int i=0; i<5; i++) {
         CFTimeInterval startT = CACurrentMediaTime();
-        output = [(__bridge id)model predictionFromX:inX xa:inXa masked_kv_caches:inMkv cross_kv_caches:inCkv error:&error];
+        output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input options:options error:&error];
         NSLog(@"%d time %f", i, CACurrentMediaTime() - startT);
 
         if(error) {
@@ -140,6 +174,11 @@ void closeModel(const void* model) {
    free(xa_fp16);
    free(mkv_fp16);
    free(ckv_fp16);
+
+   free(out_x_fp16);
+   free(out_qks_fp16);
+   free(out_mkv_fp16);
+   free(out_ckv_fp16);
 }
 
 #if __cplusplus
