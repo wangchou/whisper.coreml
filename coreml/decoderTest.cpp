@@ -29,7 +29,8 @@ int main() {
 
     float* x = getOnes(bs * n_state); // (bs, 1, n_state)
     float* xa = getOnes(bs * 1500 * n_state); // (bs, 1500, n_state)
-    float* masked_kv_caches = getOnes( n_layer * 2 * bs * text_offset * n_state); // (n_layer * 2, bs, text_offset, n_state)
+    float* qk_mask = getOnes(449); // (1, 449)
+    float* masked_kv_caches = getOnes( n_layer * 2 * bs * 448 * n_state); // (n_layer * 2, bs, 448, n_state)
     float* cross_kv_caches =  getOnes( n_layer * 2 * bs * 1500 * n_state);// (n_layer * 2, bs, 1500, n_state)
 
     float* out_x = getOnes(bs * n_state); // (bs, 1, n_state)
@@ -38,7 +39,7 @@ int main() {
     float* out_new_cross_kv_caches  = getOnes( 1);// (1)
 
     predictWith(decoder, // model
-                x, xa, masked_kv_caches, cross_kv_caches, // input
+                x, xa, qk_mask, masked_kv_caches, cross_kv_caches, // input
                 n_layer, n_state, n_head, text_offset, // context parameter
                 out_x, out_cross_qks, out_new_masked_kv_caches, out_new_cross_kv_caches // outputs
                 );

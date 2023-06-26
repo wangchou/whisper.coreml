@@ -152,22 +152,29 @@ class PyTorchInference(Inference):
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
 
+        if self.model.text_offset == 0:
+            self.model.masked_kv_caches = torch.zeros((2*self.model.n_layer, 5, 448, self.model.n_state))
+
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.model.decoder(tokens, audio_features,
+                                                                                          self.model.text_offset,
                                                                                           self.model.masked_kv_caches,
                                                                                           self.model.cross_kv_caches)
-        if self.model.masked_kv_caches is None:
+        n_ctx = output.shape[1]
+        if self.model.text_offset == 0:
             self.model.cross_kv_caches = new_cross_kv_caches
-            self.model.masked_kv_caches = new_masked_kv_caches
+            self.model.masked_kv_caches[:, :, :n_ctx, :] = new_masked_kv_caches
         else:
-            self.model.masked_kv_caches = torch.cat([self.model.masked_kv_caches,
-                                                     new_masked_kv_caches],
-                                                     dim=2)
+            from_offset = self.model.text_offset
+            to_offset = self.model.text_offset + n_ctx
+            self.model.masked_kv_caches[:, :, from_offset:to_offset, :] = new_masked_kv_caches
+
+        self.model.text_offset += n_ctx
 
         #print(f"PyTorchInference tooks {timer()-startT}")
         return output, cross_qks
 
     def cleanup_caching(self):
-        self.model.masked_kv_caches = None
+        self.model.text_offset = 0
         self.model.cross_kv_caches = None
 
     def rearrange_kv_cache(self, source_indices):
