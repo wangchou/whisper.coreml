@@ -155,18 +155,18 @@ class PyTorchInference(Inference):
         if self.model.text_offset == 0:
             self.model.masked_kv_caches = torch.zeros((2*self.model.n_layer, 5, 448, self.model.n_state))
 
-        output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.model.decoder(tokens, audio_features,
-                                                                                          self.model.text_offset,
-                                                                                          self.model.masked_kv_caches,
-                                                                                          self.model.cross_kv_caches)
+        output, cross_qks, new_mkv, new_ckv = self.model.decoder(tokens, audio_features,
+                                                                 self.model.text_offset,
+                                                                 self.model.masked_kv_caches,
+                                                                 self.model.cross_kv_caches)
         n_ctx = output.shape[1]
         if self.model.text_offset == 0:
-            self.model.cross_kv_caches = new_cross_kv_caches
-            self.model.masked_kv_caches[:, :, :n_ctx, :] = new_masked_kv_caches
+            self.model.cross_kv_caches = new_ckv
+            self.model.masked_kv_caches[:, :, :n_ctx, :] = new_mkv
         else:
             from_offset = self.model.text_offset
             to_offset = self.model.text_offset + n_ctx
-            self.model.masked_kv_caches[:, :, from_offset:to_offset, :] = new_masked_kv_caches
+            self.model.masked_kv_caches[:, :, from_offset:to_offset, :] = new_mkv
 
         self.model.text_offset += n_ctx
 

@@ -33,7 +33,7 @@ int main() {
     float* masked_kv_caches = getOnes( n_layer * 2 * bs * 448 * n_state); // (n_layer * 2, bs, 448, n_state)
     float* cross_kv_caches =  getOnes( n_layer * 2 * bs * 1500 * n_state);// (n_layer * 2, bs, 1500, n_state)
 
-    float* out_x = getOnes(bs * n_state); // (bs, 1, n_state)
+    float* out_logits = getOnes(bs * 51865); // (bs, 1, 51865)
     float* out_cross_qks = getOnes( n_layer * 2 * bs * n_head * 1500);// (n_layer * bs, n_head, 1, 1500)
     float* out_new_masked_kv_caches = getOnes( n_layer * 2 * bs * 1 * n_state); // (n_layer * 2, bs, 1, n_state)
     float* out_new_cross_kv_caches  = getOnes( 1);// (1)
@@ -41,11 +41,11 @@ int main() {
     predictWith(decoder, // model
                 x, xa, qk_mask, masked_kv_caches, cross_kv_caches, // input
                 n_layer, n_state, n_head, text_offset, // context parameter
-                out_x, out_cross_qks, out_new_masked_kv_caches, out_new_cross_kv_caches // outputs
+                out_logits, out_cross_qks, out_new_masked_kv_caches, out_new_cross_kv_caches // outputs
                 );
 
     // it should match pytorch output:
     // tensor([ 0.9057, -1.3382], grad_fn=<SliceBackward0>) tensor(7.6636, grad_fn=<SelectBackward0>)
-    cout << " " << out_x[0] << " " << out_x[1] << " " << out_x[bs * n_state - 1];
+    cout << " " << out_logits[0] << " " << out_logits[1] << " " << out_logits[bs * 51865 - 1];
     closeModel(decoder);
 }

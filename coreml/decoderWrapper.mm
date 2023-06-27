@@ -67,6 +67,39 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     return model;
 }
 
+CVPixelBufferRef getPixelBuffer(int dim1, int dim2) {
+    CVPixelBufferRef pixelBuffer = NULL;
+    CVReturn cvRetval = 0;
+    NSDictionary* poptions = @{(id)kCVPixelBufferIOSurfacePropertiesKey : @{}};
+    cvRetval = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            dim1, dim2,
+            kCVPixelFormatType_OneComponent16Half,
+            (__bridge CFDictionaryRef)poptions,
+            &pixelBuffer);
+
+    if (cvRetval != kCVReturnSuccess) {
+        NSLog(@"something wrong on creating PixelBuffer %d", cvRetval);
+    }
+
+    return pixelBuffer;
+}
+
+MLMultiArray* getPixelBufferArray2(int dim1, int dim2) {
+    CVPixelBufferRef pixelBuffer = getPixelBuffer(dim2, dim1);
+    return [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2)]];
+}
+
+MLMultiArray* getPixelBufferArray3(int dim1, int dim2, int dim3) {
+    CVPixelBufferRef pixelBuffer = getPixelBuffer(dim3, dim1 * dim2);
+    return [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3)]];
+}
+
+MLMultiArray* getPixelBufferArray4(int dim1, int dim2, int dim3, int dim4) {
+    CVPixelBufferRef pixelBuffer = getPixelBuffer(dim4, dim1 * dim2 * dim3);
+    return [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3), @(dim4)]];
+}
+
 MLMultiArray* getArray1(void* dataPtr, int dim1, MLMultiArrayDataType dataType) {
     return [[MLMultiArray alloc]
         initWithDataPointer: dataPtr
@@ -78,38 +111,6 @@ MLMultiArray* getArray1(void* dataPtr, int dim1, MLMultiArrayDataType dataType) 
     ];
 }
 
-MLMultiArray* getArray2(void* dataPtr, int dim1, int dim2, MLMultiArrayDataType dataType) {
-    return [[MLMultiArray alloc]
-        initWithDataPointer: dataPtr
-        shape: @[@(dim1), @(dim2)]
-        dataType: dataType
-        strides: @[@(dim2), @1]
-        deallocator: nil
-        error: nil
-    ];
-}
-
-MLMultiArray* getArray3(void* dataPtr, int dim1, int dim2, int dim3, MLMultiArrayDataType dataType) {
-    return [[MLMultiArray alloc]
-        initWithDataPointer: dataPtr
-        shape: @[@(dim1), @(dim2), @(dim3)]
-        dataType: dataType
-        strides: @[@(dim2*dim3), @(dim3), @1]
-        deallocator: nil
-        error: nil
-    ];
-}
-
-MLMultiArray* getArray4(void* dataPtr, int dim1, int dim2, int dim3, int dim4, MLMultiArrayDataType dataType) {
-    return [[MLMultiArray alloc]
-        initWithDataPointer: dataPtr
-        shape: @[@(dim1), @(dim2), @(dim3), @(dim4)]
-        dataType: dataType
-        strides: @[@(dim2*dim3*dim4), @(dim3*dim4), @(dim4), @1]
-        deallocator: nil
-        error: nil
-    ];
-}
 
 void predictWith(
     const void* model,
@@ -122,7 +123,7 @@ void predictWith(
     int n_state,
     int n_head,
     int text_offset,
-    float* out_x,
+    float* out_logits,
     float* out_cross_qks,
     float* out_new_masked_kv_caches,
     float* out_new_cross_kv_caches
@@ -131,32 +132,32 @@ void predictWith(
     NSLog(@"predictWith text_offset=%d", text_offset);
 
     // input arrays
-    float32ToFloat16(x, x_fp16, 5 * n_state);
-    MLMultiArray *inX = getArray3(x_fp16, 5, 1, n_state, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *inX = getPixelBufferArray3(5, 1, n_state);
+    float32ToFloat16(x, (uint16*)inX.dataPointer, 5 * n_state);
 
-    float32ToFloat16(xa, xa_fp16, 5 * 1500 * n_state);
-    MLMultiArray *inXa = getArray3(xa_fp16, 5, 1500, n_state, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *inXa = getPixelBufferArray3(5, 1500, n_state);
+    float32ToFloat16(xa, (uint16*)inXa.dataPointer, 5 * 1500 * n_state);
 
-    float32ToFloat16(qk_mask, qk_mask_fp16, 449);
-    MLMultiArray *inQk_mask = getArray2(qk_mask_fp16, 1, 449, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *inQk_mask = getPixelBufferArray2(1, 449);
+    float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 449);
 
-    float32ToFloat16(masked_kv_caches, mkv_fp16, n_layer * 2 * 5 * 448 * n_state);
-    MLMultiArray *inMkv = getArray4(mkv_fp16, n_layer*2, 5, 448, n_state, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *inMkv = getPixelBufferArray4(n_layer*2, 5, 448, n_state);
+    float32ToFloat16(masked_kv_caches, (uint16*)inMkv.dataPointer, n_layer * 2 * 5 * 448 * n_state);
 
-    float32ToFloat16(cross_kv_caches, ckv_fp16, n_layer * 2 * 5 * 1500 * n_state);
-    MLMultiArray *inCkv = getArray4(ckv_fp16, n_layer*2, 5, 1500, n_state, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *inCkv = getPixelBufferArray4(n_layer*2, 5, 1500, n_state);
+    float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 5 * 1500 * n_state);
 
     CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX xa:inXa qk_mask:inQk_mask masked_kv_caches:inMkv cross_kv_caches:inCkv];
 
     // output arrays
-    MLMultiArray *outX = getArray3(out_x_fp16, 5, 1, n_state, MLMultiArrayDataTypeFloat16);
-    MLMultiArray *outQKs = getArray4(out_qks_fp16, n_layer*5, n_head, 1, 1500, MLMultiArrayDataTypeFloat16);
-    MLMultiArray *outMKV = getArray4(out_mkv_fp16, n_layer*2, 5, 1, n_state, MLMultiArrayDataTypeFloat16);
+    MLMultiArray *outLogits =   getPixelBufferArray3(5, 1, 51865);
+    MLMultiArray *outQKs = getPixelBufferArray4(n_layer*5, n_head, 1, 1500);
+    MLMultiArray *outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state);
     MLMultiArray *outCKV = getArray1(out_ckv_fp16, 1, MLMultiArrayDataTypeFloat16);
     MLPredictionOptions* options = [MLPredictionOptions alloc];
 
     NSDictionary *outputBackings = @{
-        @"out_x":outX,
+        @"out_logits":outLogits,
         @"out_cross_qks":outQKs,
         @"out_new_masked_kv_caches":outMKV,
         @"out_new_cross_kv_caches":outCKV
@@ -181,14 +182,14 @@ void predictWith(
    // cblas_scopy((int)output.out_x.count,
    //             (float*)output.out_x.dataPointer, 1,
    //             out_x, 1);
-   float16ToFloat32((uint16*)output.out_x.dataPointer, out_x, output.out_x.count);
+   float16ToFloat32((uint16*)output.out_logits.dataPointer, out_logits, output.out_logits.count);
    float16ToFloat32((uint16*)output.out_cross_qks.dataPointer, out_cross_qks, output.out_cross_qks.count);
    float16ToFloat32((uint16*)output.out_new_masked_kv_caches.dataPointer, out_new_masked_kv_caches, output.out_new_masked_kv_caches.count);
    float16ToFloat32((uint16*)output.out_new_cross_kv_caches.dataPointer, out_new_cross_kv_caches, output.out_new_cross_kv_caches.count);
 }
 
 void closeModel(const void* model) {
-    CFRelease(model);
+   CFRelease(model);
    free(x_fp16);
    free(xa_fp16);
    free(qk_mask_fp16);
@@ -204,3 +205,36 @@ void closeModel(const void* model) {
 #if __cplusplus
 } //Extern C
 #endif
+
+//MLMultiArray* getArray2(void* dataPtr, int dim1, int dim2, MLMultiArrayDataType dataType) {
+//    return [[MLMultiArray alloc]
+//        initWithDataPointer: dataPtr
+//        shape: @[@(dim1), @(dim2)]
+//        dataType: dataType
+//        strides: @[@(dim2), @1]
+//        deallocator: nil
+//        error: nil
+//    ];
+//}
+//
+//MLMultiArray* getArray3(void* dataPtr, int dim1, int dim2, int dim3, MLMultiArrayDataType dataType) {
+//    return [[MLMultiArray alloc]
+//        initWithDataPointer: dataPtr
+//        shape: @[@(dim1), @(dim2), @(dim3)]
+//        dataType: dataType
+//        strides: @[@(dim2*dim3), @(dim3), @1]
+//        deallocator: nil
+//        error: nil
+//    ];
+//}
+//
+//MLMultiArray* getArray4(void* dataPtr, int dim1, int dim2, int dim3, int dim4, MLMultiArrayDataType dataType) {
+//    return [[MLMultiArray alloc]
+//        initWithDataPointer: dataPtr
+//        shape: @[@(dim1), @(dim2), @(dim3), @(dim4)]
+//        dataType: dataType
+//        strides: @[@(dim2*dim3*dim4), @(dim3*dim4), @(dim4), @1]
+//        deallocator: nil
+//        error: nil
+//    ];
+//}

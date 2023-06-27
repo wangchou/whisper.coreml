@@ -368,14 +368,11 @@ class TextDecoder(nn.Module):
         xa : torch.Tensor, shape = (batch_size, n_mels, n_audio_ctx)
             the encoded audio features to be attended on
         """
-        offset = text_offset#masked_kv_caches.shape[2] if masked_kv_caches is not None else 0
+        offset = text_offset
         n_batch, n_ctx = x.shape
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
 
-        n_ctx = x.shape[1]
-        # general slice is not support in ane => generate it
-        #qk_mask = self.mask[:n_ctx, :n_ctx]
         if text_offset == 0:
             qk_mask = (torch.ones(n_ctx, n_ctx) * -np.inf).triu_(1)
             qk_mask = torch.cat([torch.ones(n_ctx, 448) * -np.inf, qk_mask], dim=1)
@@ -385,11 +382,7 @@ class TextDecoder(nn.Module):
                                  torch.FloatTensor([[0]])],
                                 dim=1)
 
-        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)
-
-        logits = (
-            x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
-        ).float()
+        logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
@@ -447,8 +440,13 @@ class TextDecoder(nn.Module):
 
         x = self.ln(x)
 
-        # print(f"x {x.shape}, cross_qks {cross_qks.shape}, new_masked_kv_caches {new_masked_kv_caches.shape}, new_cross_kv_caches {new_cross_kv_caches.shape}")
-        return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        # ane only support upto 16384 on dim
+        # so divide 51865 to 51865/11 to fit in ane
+        splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
+        x = x.view(*x.shape[:2], self.n_state)
+        logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
+
+        return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
 class Whisper(nn.Module):
     def __init__(self, dims: ModelDimensions):
