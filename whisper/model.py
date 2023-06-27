@@ -209,9 +209,10 @@ class CoremlEncoder():
             return "unknown_model_size"
 ########################################
 class CoremlDecoder():
-    def __init__(self, n_layer: int, n_state: int):
+    def __init__(self, n_layer: int, n_state: int, n_head: int):
         self.n_layer = n_layer
         self.n_state = n_state
+        self.n_head = n_head
         self.decoderObj = None
         self.mlmodel_handle = None
 
@@ -219,11 +220,11 @@ class CoremlDecoder():
         if self.mlmodel_handle == None:
             modelSize = self.getModelSize(self.n_state)
             self.decoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/decoderWrapper.so')
-            self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int]
+            self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int]
             self.decoderObj.loadModel.restype = c_void_p
             self.decoderObj.loadModel.restype = c_void_p
             c_string = bytes(f'./coreml/{modelSize}/CoremlDecoder.mlmodelc', 'ascii')
-            self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state)
+            self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head)
 
             bs = 5 # beam_size
             n_head = 6 # tiny=6, base=8, small=12, medium=16, large=20
@@ -240,11 +241,11 @@ class CoremlDecoder():
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), POINTER(c_float))
             self.outCKVPtr = ctypes.cast(self.new_cross_kv_caches.data_ptr(), POINTER(c_float))
 
-    def predictWith(self, x, xa, masked_kv_caches, cross_kv_caches):
+    def predictWith(self, x, xa, qk_mask, masked_kv_caches, cross_kv_caches):
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
-                                                POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float),
+                                                POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float),
                                                 c_int, c_int, c_int,
                                                 POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float)]
         self.decoderObj.predictWith.restypes = None
@@ -254,19 +255,20 @@ class CoremlDecoder():
         xPtr = ctypes.cast(x.data_ptr(), POINTER(c_float))
         xa = xa.contiguous()
         xaPtr = ctypes.cast(xa.data_ptr(), POINTER(c_float))
+        qk_mask = qk_mask.contiguous()
+        qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), POINTER(c_float))
         masked_kv_caches = masked_kv_caches.contiguous()
         mkvPtr = ctypes.cast(masked_kv_caches.data_ptr(), POINTER(c_float))
         cross_kv_caches = cross_kv_caches.contiguous()
         ckvPtr = ctypes.cast(cross_kv_caches.data_ptr(), POINTER(c_float))
 
         # predict
-        text_offset = masked_kv_caches.shape[2] if masked_kv_caches is not None else 0
         startT = timer()
         self.decoderObj.predictWith(self.mlmodel_handle,
-                                    xPtr, xaPtr, mkvPtr, ckvPtr,
-                                    self.n_layer, self.n_state, text_offset,
+                                    xPtr, xaPtr, qkMaskPtr, mkvPtr, ckvPtr,
+                                    self.n_layer, self.n_state, self.n_head,
                                     self.outXPtr, self.outCQKPtr, self.outMKVPtr, self.outCKVPtr)
-        print(f"\tpredictWit took {timer() - startT:.3f}")
+        #print(f"\tpredictWit took {timer() - startT:.3f}")
 
         return self.out_x, self.out_cross_qks, self.new_masked_kv_caches, self.new_cross_kv_caches
 
@@ -354,6 +356,7 @@ class TextDecoder(nn.Module):
         self.n_vocab = n_vocab
         self.n_state = n_state
         self.n_layer = n_layer
+        self.n_head = n_head
         mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
         self.register_buffer("mask", mask, persistent=False)
         self.coremlDecoder = None
@@ -382,7 +385,11 @@ class TextDecoder(nn.Module):
                                  torch.FloatTensor([[0]])],
                                 dim=1)
 
-        logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)
+        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)
+
+        logits = (
+            x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
+        ).float()
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
@@ -393,13 +400,13 @@ class TextDecoder(nn.Module):
 
         ############################
         # Coreml Decoder part
-        #if masked_kv_caches is not None and x.shape[1] == 1:
-        #    #startT = timer()
-        #    if self.coremlDecoder == None:
-        #        self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state)
-        #    x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, masked_kv_caches, cross_kv_caches)
-        #    #print(f"\tcoreml decoder took {timer() - startT:.3f}")
-        #    return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        if masked_kv_caches is not None and x.shape[1] == 1:
+            #startT = timer()
+            if self.coremlDecoder == None:
+                self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
+            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)
+            #print(f"\tcoreml decoder took {timer() - startT:.3f}")
+            return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
         ###########################3
 
         cross_qks = []
@@ -440,13 +447,7 @@ class TextDecoder(nn.Module):
 
         x = self.ln(x)
 
-        # ane only support upto 16384 on dim
-        # so divide 51865 to 51865/11 to fit in ane
-        splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
-        x = x.view(*x.shape[:2], self.n_state)
-        logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
-
-        return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
 class Whisper(nn.Module):
     def __init__(self, dims: ModelDimensions):

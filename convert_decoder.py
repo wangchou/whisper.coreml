@@ -59,7 +59,7 @@ decoder.save(f"{folder_path}/CoremlDecoder.mlpackage")
 
 ## test accuracy
 torch_output = traced_decoder.forward(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)[0]
-print("torch model output:", torch_output[0][0][:2], torch_output[bs-1][0][n_state-1] )
+print("torch model output:", torch_output[:,0,:2])
 
 coreml_output = torch.from_numpy(
         decoder.predict({'x': x,
@@ -68,7 +68,7 @@ coreml_output = torch.from_numpy(
                          'masked_kv_caches': masked_kv_caches,
                          'cross_kv_caches':cross_kv_caches})['out_x']
 )
-print(f"coreml {modelSize} model output:", coreml_output[0][0][:2], coreml_output[bs-1][0][n_state-1])
+print(f"coreml {modelSize} model output:", coreml_output[:,0,:2])
 diff = torch.abs(torch_output - coreml_output).detach()
 print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
