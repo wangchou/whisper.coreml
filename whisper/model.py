@@ -153,7 +153,7 @@ class ResidualAttentionBlock(nn.Module):
 
 ################################################
 # Coreml Encoder part
-from ctypes import cdll, c_int, c_float, c_char_p, c_void_p, POINTER
+from ctypes import cdll, c_int, c_float, c_char_p, c_void_p, c_bool, POINTER
 import ctypes
 import torch
 
@@ -241,12 +241,12 @@ class CoremlDecoder():
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), POINTER(c_float))
             self.outCKVPtr = ctypes.cast(self.new_cross_kv_caches.data_ptr(), POINTER(c_float))
 
-    def predictWith(self, x, xa, qk_mask, masked_kv_caches, cross_kv_caches):
+    def predictWith(self, x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV):
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
                                                 POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float),
-                                                c_int, c_int, c_int,
+                                                c_int, c_int, c_int, c_bool,
                                                 POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float)]
         self.decoderObj.predictWith.restypes = None
 
@@ -266,7 +266,7 @@ class CoremlDecoder():
         startT = timer()
         self.decoderObj.predictWith(self.mlmodel_handle,
                                     xPtr, xaPtr, qkMaskPtr, mkvPtr, ckvPtr,
-                                    self.n_layer, self.n_state, self.n_head,
+                                    self.n_layer, self.n_state, self.n_head, isNewCKV,
                                     self.outXPtr, self.outCQKPtr, self.outMKVPtr, self.outCKVPtr)
         #print(f"\tpredictWit took {timer() - startT:.3f}")
 
@@ -363,6 +363,7 @@ class TextDecoder(nn.Module):
 
     def forward(self, x: Tensor, xa: Tensor,
                 text_offset: Tensor,
+                isNewCKV: Tensor,
                 masked_kv_caches: Optional[Tensor] = None,
                 cross_kv_caches: Optional[Tensor] = None):
         """
@@ -371,6 +372,7 @@ class TextDecoder(nn.Module):
         xa : torch.Tensor, shape = (batch_size, n_mels, n_audio_ctx)
             the encoded audio features to be attended on
         """
+        #startT = timer()
         offset = text_offset
         n_batch, n_ctx = x.shape
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
@@ -384,19 +386,24 @@ class TextDecoder(nn.Module):
                                  torch.ones((1, 448-text_offset)) * -np.inf,
                                  torch.FloatTensor([[0]])],
                                 dim=1)
+        #print(f"\tDecoder 1 {timer()-startT:.3f}")
 
-        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)
+        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
+        #print(f"\tDecoder 2 {timer()-startT:.3f}")
         logits = (
             x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
         ).float()
+        #print(f"\tDecoder 3 {timer()-startT:.3f}")
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
     def forwardBlocks(self, x: Tensor, xa: Tensor,
                       qk_mask: Optional[Tensor] = None,
                       masked_kv_caches: Optional[Tensor] = None,
-                      cross_kv_caches: Optional[Tensor] = None):
+                      cross_kv_caches: Optional[Tensor] = None,
+                      isNewCKV: Optional[Tensor] = None # only for coremlDecoder
+                      ):
 
         ############################
         # Coreml Decoder part
@@ -404,7 +411,7 @@ class TextDecoder(nn.Module):
             #startT = timer()
             if self.coremlDecoder == None:
                 self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
-            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)
+            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
             #print(f"\tcoreml decoder took {timer() - startT:.3f}")
             return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
         ###########################3
@@ -480,6 +487,7 @@ class Whisper(nn.Module):
         self.text_offset = 0
         self.masked_kv_caches = None#torch.zeros((2*self.n_layer, 5, 448, self.n_state))
         self.cross_kv_caches = None
+        self.isNewCKV = True
 
     def set_alignment_heads(self, dump: bytes):
         array = np.frombuffer(
@@ -511,6 +519,7 @@ class Whisper(nn.Module):
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens,
                                                                                     self.encoder(mel),
                                                                                     self.text_offset,
+                                                                                    self.isNewCKV,
                                                                                     self.masked_kv_caches,
                                                                                     self.cross_kv_caches)
         # this only called once in each add_word_timestamps,

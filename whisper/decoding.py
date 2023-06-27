@@ -157,9 +157,13 @@ class PyTorchInference(Inference):
 
         output, cross_qks, new_mkv, new_ckv = self.model.decoder(tokens, audio_features,
                                                                  self.model.text_offset,
+                                                                 self.model.isNewCKV,
                                                                  self.model.masked_kv_caches,
                                                                  self.model.cross_kv_caches)
         n_ctx = output.shape[1]
+        if n_ctx == 1:
+            self.model.isNewCKV = False # for coreml only
+
         if self.model.text_offset == 0:
             self.model.cross_kv_caches = new_ckv
             self.model.masked_kv_caches[:, :, :n_ctx, :] = new_mkv
@@ -170,12 +174,13 @@ class PyTorchInference(Inference):
 
         self.model.text_offset += n_ctx
 
-        #print(f"PyTorchInference tooks {timer()-startT}")
+        #print(f"PyTorchInference tooks {timer()-startT:.3f}")
         return output, cross_qks
 
     def cleanup_caching(self):
         self.model.text_offset = 0
         self.model.cross_kv_caches = None
+        self.model.isNewCKV = True
 
     def rearrange_kv_cache(self, source_indices):
         #startT = timer()
@@ -184,8 +189,8 @@ class PyTorchInference(Inference):
         if not is_same_order:
             for i in range(0, self.n_text_layer * 2):
                 self.model.masked_kv_caches[i] = self.model.masked_kv_caches[i][source_indices]
-                self.model.cross_kv_caches[i] = self.model.cross_kv_caches[i][source_indices]
-        #print(f"rearrange cache tooks  {timer()-startT} ({is_same_order})")
+        #        self.model.cross_kv_caches[i] = self.model.cross_kv_caches[i][source_indices]
+        #print(f"rearrange cache tooks  {timer()-startT:.3f} ({is_same_order})")
 
 class SequenceRanker:
     def rank(
@@ -661,6 +666,8 @@ class DecodingTask:
             audio_features = mel
         else:
             audio_features = self.model.encoder(mel)
+            self.model.isNewCKV = True
+            #print("isNewCKV = True")
 
         if audio_features.dtype != (
             torch.float16 if self.options.fp16 else torch.float32

@@ -127,21 +127,26 @@ void predictWith(
     int n_layer,
     int n_state,
     int n_head,
+    bool isNewCKV,
     float* out_x,
     float* out_cross_qks,
     float* out_new_masked_kv_caches,
     float* out_new_cross_kv_caches
 ) {
+    //CFTimeInterval startT = CACurrentMediaTime();
+
     // input arrays
     float32ToFloat16(x, (uint16*)inX.dataPointer, 5 * n_state);
-
     float32ToFloat16(xa, (uint16*)inXa.dataPointer, 5 * 1500 * n_state);
-
     float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 449);
-
     float32ToFloat16(masked_kv_caches, (uint16*)inMkv.dataPointer, n_layer * 2 * 5 * 448 * n_state);
 
-    float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 5 * 1500 * n_state);
+    // this takes 4ms on tiny, about 40% of this func
+    if (isNewCKV) {
+        float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 5 * 1500 * n_state);
+    }
+
+    //NSLog(@"f32 to f16 %.3f %s", CACurrentMediaTime() - startT, isNewCKV ? "True" : "False");
 
     CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX xa:inXa qk_mask:inQk_mask masked_kv_caches:inMkv cross_kv_caches:inCkv];
 
@@ -160,32 +165,18 @@ void predictWith(
     CoremlDecoderOutput *output;
 
     output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input error:&error];
+    //NSLog(@"prediction %.3f", CACurrentMediaTime() - startT);
 
     if(error) {
         NSLog(@"%@", error);
     }
 
-    // 5 time speed tests
-    //for(int i=0; i<5; i++) {
-    //    CFTimeInterval startT = CACurrentMediaTime();
-    //    //output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input options:options error:&error];
-    //    output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input error:&error];
-    //    NSLog(@"%d time %.3f", i, CACurrentMediaTime() - startT);
-
-    //    if(error) {
-    //        NSLog(@"%@", error);
-    //    }
-    //}
-
-
-   //NSLog(@"%@", output.out_x);
-   // cblas_scopy((int)output.out_x.count,
-   //             (float*)output.out_x.dataPointer, 1,
-   //             out_x, 1);
    float16ToFloat32((uint16*)output.out_x.dataPointer, out_x, output.out_x.count);
    float16ToFloat32((uint16*)output.out_cross_qks.dataPointer, out_cross_qks, output.out_cross_qks.count);
    float16ToFloat32((uint16*)output.out_new_masked_kv_caches.dataPointer, out_new_masked_kv_caches, output.out_new_masked_kv_caches.count);
    float16ToFloat32((uint16*)output.out_new_cross_kv_caches.dataPointer, out_new_cross_kv_caches, output.out_new_cross_kv_caches.count);
+   //NSLog(@"f16 to f32 %.3f", CACurrentMediaTime() - startT);
+   //NSLog(@" ");
 }
 
 void closeModel(const void* model) {

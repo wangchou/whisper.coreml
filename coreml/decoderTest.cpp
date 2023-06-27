@@ -38,11 +38,13 @@ int main() {
     float* out_new_masked_kv_caches = getOnes( n_layer * 2 * bs * 1 * n_state); // (n_layer * 2, bs, 1, n_state)
     float* out_new_cross_kv_caches  = getOnes( 1);// (1)
 
-    predictWith(decoder, // model
+    for(int i=0; i<5; i++) {
+        predictWith(decoder, // model
                 x, xa, qk_mask, masked_kv_caches, cross_kv_caches, // input
-                n_layer, n_state, n_head, // context parameter
+                n_layer, n_state, n_head, i == 0, // context parameter
                 out_x, out_cross_qks, out_new_masked_kv_caches, out_new_cross_kv_caches // outputs
                 );
+    }
 
     // it should match pytorch output:
     // tensor([ 0.9057, -1.3382], grad_fn=<SliceBackward0>) tensor(7.6636, grad_fn=<SelectBackward0>)
