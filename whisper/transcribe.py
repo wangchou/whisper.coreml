@@ -414,7 +414,7 @@ def cli():
     parser.add_argument("--max_line_count", type=optional_int, default=None, help="(requires --word_timestamps True) the maximum number of lines in a segment")
     parser.add_argument("--threads", type=optional_int, default=0, help="number of threads used by torch for CPU inference; supercedes MKL_NUM_THREADS/OMP_NUM_THREADS")
     # fmt: on
-
+    startT = timer()
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
     model_dir: str = args.pop("model_dir")
@@ -452,8 +452,12 @@ def cli():
     if args["max_line_count"] and not args["max_line_width"]:
         warnings.warn("--max_line_count has no effect without --max_line_width")
     writer_args = {arg: args.pop(arg) for arg in word_options}
+
     for audio_path in args.pop("audio"):
+        print(f"\n---\nprepare time before transcribe(load_model...): {timer() - startT: .3f}\n---")
+        startT = timer()
         result = transcribe(model, audio_path, temperature=temperature, **args)
+        print(f"---\ntotal time on transcribe(): {timer() - startT: .3f}\n")
         writer(result, audio_path, writer_args)
 
 

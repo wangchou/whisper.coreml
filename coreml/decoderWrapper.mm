@@ -107,9 +107,10 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     inCkv = getPixelBufferArray4(n_layer*2, 5, 1500, n_state);
 
     // output arrays
-    outX = getPixelBufferArray3(5, 1, n_state);
-    outQKs = getPixelBufferArray4(n_layer*5, n_head, 1, 1500);
-    outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state);
+    int f32_multiple = 2;
+    outX = getPixelBufferArray3(5, 1, 51865 * f32_multiple);
+    outQKs = getPixelBufferArray4(n_layer*5, n_head, 1, 1500 * f32_multiple);
+    outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state * f32_multiple);
     outCKV = getArray1(out_ckv_fp16, 1, MLMultiArrayDataTypeFloat16);
 
     out_ckv_fp16 = (uint16 *) malloc(sizeof(uint16)); // tiny~=46MB, small~=270MB, large ~= 1.2GB
@@ -137,7 +138,9 @@ void predictWith(
 
     // input arrays
     float32ToFloat16(x, (uint16*)inX.dataPointer, 5 * n_state);
-    float32ToFloat16(xa, (uint16*)inXa.dataPointer, 5 * 1500 * n_state);
+    if (isNewCKV) {
+        float32ToFloat16(xa, (uint16*)inXa.dataPointer, 5 * 1500 * n_state);
+    }
     float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 449);
     float32ToFloat16(masked_kv_caches, (uint16*)inMkv.dataPointer, n_layer * 2 * 5 * 448 * n_state);
 
@@ -167,16 +170,17 @@ void predictWith(
     output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input error:&error];
     //NSLog(@"prediction %.3f", CACurrentMediaTime() - startT);
 
+    cblas_scopy((int)   output.out_x.count,
+                (float*)output.out_x.dataPointer, 1, out_x, 1);
+    cblas_scopy((int)   output.out_cross_qks.count,
+                (float*)output.out_cross_qks.dataPointer, 1, out_cross_qks, 1);
+    cblas_scopy((int)   output.out_new_masked_kv_caches.count,
+                (float*)output.out_new_masked_kv_caches.dataPointer, 1, out_new_masked_kv_caches, 1);
+    cblas_scopy((int)   output.out_new_cross_kv_caches.count,
+                (float*)output.out_new_cross_kv_caches.dataPointer, 1, out_new_cross_kv_caches, 1);
     if(error) {
         NSLog(@"%@", error);
     }
-
-   float16ToFloat32((uint16*)output.out_x.dataPointer, out_x, output.out_x.count);
-   float16ToFloat32((uint16*)output.out_cross_qks.dataPointer, out_cross_qks, output.out_cross_qks.count);
-   float16ToFloat32((uint16*)output.out_new_masked_kv_caches.dataPointer, out_new_masked_kv_caches, output.out_new_masked_kv_caches.count);
-   float16ToFloat32((uint16*)output.out_new_cross_kv_caches.dataPointer, out_new_cross_kv_caches, output.out_new_cross_kv_caches.count);
-   //NSLog(@"f16 to f32 %.3f", CACurrentMediaTime() - startT);
-   //NSLog(@" ");
 }
 
 void closeModel(const void* model) {

@@ -13,17 +13,19 @@ n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelS
 decoder = model.decoder
 decoder.eval()
 
-dtype1=torch.float16
-dtype2=np.float16
+inType=np.float16
+# coreml has some issue when output type = fp16 when using ane or gpu
+# https://github.com/apple/coremltools/issues/1893
+outType=np.float32
 
 bs = 5 # beam_size
 
 # input data for trace
-x = torch.ones((bs, 1, n_state), dtype=dtype1)
-xa = torch.ones((bs, 1500, n_state), dtype=dtype1)
-qk_mask = torch.zeros((1,449), dtype=dtype1)
-masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state), dtype=dtype1)
-cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state), dtype=dtype1)
+x = torch.ones((bs, 1, n_state))
+xa = torch.ones((bs, 1500, n_state))
+qk_mask = torch.zeros((1,449))
+masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state))
+cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state))
 
 traced_decoder = torch.jit.trace_module(decoder,
                                         {'forwardBlocks': (x, xa, qk_mask, masked_kv_caches, cross_kv_caches)})
@@ -31,17 +33,17 @@ traced_decoder = torch.jit.trace_module(decoder,
 traced_decoder.forward = traced_decoder.forwardBlocks
 
 # input types for convert
-input1 = ct.TensorType("x", x.shape, dtype=dtype2)
-input2 = ct.TensorType("xa", xa.shape, dtype=dtype2)
-input3 = ct.TensorType("qk_mask", qk_mask.shape, dtype=dtype2)
-input4 = ct.TensorType("masked_kv_caches", masked_kv_caches.shape, dtype=dtype2)
-input5 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=dtype2)
+input1 = ct.TensorType("x", x.shape, dtype=inType)
+input2 = ct.TensorType("xa", xa.shape, dtype=inType)
+input3 = ct.TensorType("qk_mask", qk_mask.shape, dtype=inType)
+input4 = ct.TensorType("masked_kv_caches", masked_kv_caches.shape, dtype=inType)
+input5 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=inType)
 inputs = [input1, input2, input3, input4, input5]
 
-outputs = [ct.TensorType("out_x", dtype=dtype2),
-           ct.TensorType("out_cross_qks", dtype=dtype2),
-           ct.TensorType("out_new_masked_kv_caches", dtype=dtype2),
-           ct.TensorType("out_new_cross_kv_caches", dtype=dtype2)]
+outputs = [ct.TensorType("out_x", dtype=outType),
+           ct.TensorType("out_cross_qks", dtype=outType),
+           ct.TensorType("out_new_masked_kv_caches", dtype=outType),
+           ct.TensorType("out_new_cross_kv_caches", dtype=outType)]
 
 decoder = ct.convert(
     traced_decoder,

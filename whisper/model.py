@@ -28,12 +28,12 @@ class ModelDimensions:
 
 class LayerNorm(nn.LayerNorm):
     def forward(self, x: Tensor) -> Tensor:
-        return super().forward(x.float()).type(x.dtype)
+        return super().forward(x).type(x.dtype)
 
 
 class Linear(nn.Linear):
     def forward(self, x: Tensor) -> Tensor:
-        x = x.float()
+        x = x
         return F.linear(
             x,
             self.weight.to(x.dtype),
@@ -106,13 +106,13 @@ class MultiHeadAttention(nn.Module):
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
-        qk = q.float() @ k.float() * self.qk_scale
+        qk = q @ k * self.qk_scale
         if qk_mask is not None:
             qk = qk + qk_mask
-        qk = qk.float()
+        qk = qk
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
-        return (w.float() @ v.float()).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
+        return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
@@ -232,7 +232,7 @@ class CoremlDecoder():
             n_layer = self.n_layer
             dtype1=torch.float32
             # prepare output buffers
-            self.out_x = torch.ones((bs, 1, n_state), dtype=dtype1).contiguous()
+            self.out_x = torch.ones((bs, 1, 51865), dtype=dtype1).contiguous()
             self.out_cross_qks = torch.ones((n_layer * bs, n_head, 1, 1500), dtype=dtype1).contiguous()
             self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, 1, n_state), dtype=dtype1).contiguous()
             self.new_cross_kv_caches = torch.ones(1, dtype=dtype1).contiguous() # this is dummy output
@@ -388,12 +388,8 @@ class TextDecoder(nn.Module):
                                 dim=1)
         #print(f"\tDecoder 1 {timer()-startT:.3f}")
 
-        x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+        logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
-        #print(f"\tDecoder 2 {timer()-startT:.3f}")
-        logits = (
-            x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
-        ).float()
         #print(f"\tDecoder 3 {timer()-startT:.3f}")
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
@@ -454,7 +450,11 @@ class TextDecoder(nn.Module):
 
         x = self.ln(x)
 
-        return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
+        x = x.view(*x.shape[:2], self.n_state)
+        logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
+
+        return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
 class Whisper(nn.Module):
     def __init__(self, dims: ModelDimensions):
