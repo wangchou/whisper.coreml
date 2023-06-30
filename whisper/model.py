@@ -92,7 +92,7 @@ class MultiHeadAttention(nn.Module):
                 k = torch.cat([cache_k, k], dim=1)
                 v = torch.cat([cache_v, v], dim=1)
         else:
-            # for cross-attention, calculate keys and values once and reuse in subsequent calls.
+            # for cross-attention
             k = cache_k
             v = cache_v
 
@@ -372,25 +372,29 @@ class TextDecoder(nn.Module):
         xa : torch.Tensor, shape = (batch_size, n_mels, n_audio_ctx)
             the encoded audio features to be attended on
         """
-        #startT = timer()
         offset = text_offset
         n_batch, n_ctx = x.shape
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
 
         if text_offset == 0:
-            qk_mask = (torch.ones(n_ctx, n_ctx) * -np.inf).triu_(1)
-            qk_mask = torch.cat([torch.ones(n_ctx, 448) * -np.inf, qk_mask], dim=1)
+            qk_mask = (torch.ones(448, 448) * -np.inf).triu_(1)
+            qk_mask[:, n_ctx:] = -np.inf
+            ## fix shape by appending zeros to 448
+            x = torch.cat([x, torch.zeros(n_batch, 448-n_ctx, self.n_state)], dim=1)
+            x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+            x = x[:,:n_ctx, :]
+            cross_qks = cross_qks[:, :, :n_ctx, :]
+            logits = (
+                x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
+            ).float()
         else:
             qk_mask = torch.cat([torch.zeros((1,text_offset)),
                                  torch.ones((1, 448-text_offset)) * -np.inf,
                                  torch.FloatTensor([[0]])],
                                 dim=1)
-        #print(f"\tDecoder 1 {timer()-startT:.3f}")
+            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
-        logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
-
-        #print(f"\tDecoder 3 {timer()-startT:.3f}")
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
@@ -398,18 +402,18 @@ class TextDecoder(nn.Module):
                       qk_mask: Optional[Tensor] = None,
                       masked_kv_caches: Optional[Tensor] = None,
                       cross_kv_caches: Optional[Tensor] = None,
-                      isNewCKV: Optional[Tensor] = None # only for coremlDecoder
+                      isNewCKV: Optional[Tensor] = None # only for coremlDecoder1
                       ):
 
         ############################
         # Coreml Decoder part
-        if masked_kv_caches is not None and x.shape[1] == 1:
-            #startT = timer()
-            if self.coremlDecoder == None:
-                self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
-            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
-            #print(f"\tcoreml decoder took {timer() - startT:.3f}")
-            return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        #if masked_kv_caches is not None and x.shape[1] == 1:
+        #    #startT = timer()
+        #    if self.coremlDecoder == None:
+        #        self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
+        #    logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+        #    #print(f"\tcoreml decoder took {timer() - startT:.3f}")
+        #    return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
         ###########################3
 
         cross_qks = []
@@ -423,6 +427,7 @@ class TextDecoder(nn.Module):
             else:
                 mk = None
                 mv = None
+
             if cross_kv_caches is not None:
                 ck = cross_kv_caches[layer_idx*2]
                 cv = cross_kv_caches[layer_idx*2 + 1]
@@ -450,11 +455,14 @@ class TextDecoder(nn.Module):
 
         x = self.ln(x)
 
-        splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
-        x = x.view(*x.shape[:2], self.n_state)
-        logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
+        if qk_mask.shape[0] == 1: # decoder1
+            splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
+            x = x.view(*x.shape[:2], self.n_state)
+            logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
 
-        return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+            return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        else: # decoder448
+            return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
 class Whisper(nn.Module):
     def __init__(self, dims: ModelDimensions):
@@ -515,7 +523,7 @@ class Whisper(nn.Module):
         self, mel: torch.Tensor, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
         if self.text_offset == 0:
-            self.masked_kv_caches = torch.zeros((2*self.n_layer, 1, 448, self.n_state))
+            self.masked_kv_caches = None
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens,
                                                                                     self.encoder(mel),
                                                                                     self.text_offset,
