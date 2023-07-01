@@ -3,6 +3,9 @@ import torch
 import coremltools as ct
 import os
 import numpy as np
+from timeit import default_timer as timer
+
+startT = timer()
 
 # model setting
 modelSize = "tiny"
@@ -16,14 +19,17 @@ decoder.eval()
 inType=np.float16
 # coreml has some issue when output type = fp16 when using ane or gpu
 # https://github.com/apple/coremltools/issues/1893
-outType=np.float16
+outType=np.float32
 
 bs = 5 # beam_size
 
 # input data for trace
-x = torch.ones((bs, 448, n_state))
+
+# max token len for first time = max_prefix_len(224) + sot_len(3)
+max_n_ctx = decoder.max_n_ctx_for_1st
+x = torch.ones((bs, max_n_ctx, n_state))
 xa = torch.ones((bs, 1500, n_state))
-qk_mask = torch.zeros((448,448))
+qk_mask = torch.zeros((max_n_ctx, max_n_ctx))
 
 traced_decoder = torch.jit.trace_module(decoder,
                                         {'forwardBlocks': (x, xa, qk_mask)})
@@ -49,21 +55,25 @@ decoder = ct.convert(
     compute_units=ct.ComputeUnit.CPU_AND_NE,
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
 )
+print(f"converted {timer()-startT:.3f}")
 
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
-decoder.save(f"{folder_path}/CoremlDecoder448.mlpackage")
+decoder.save(f"{folder_path}/CoremlDecoder256.mlpackage")
+print(f"saved {timer()-startT:.3f}")
 
 ## test accuracy
 torch_output = traced_decoder.forward(x, xa, qk_mask)[0]
 print("torch model output:", torch_output[:,0,:2])
+print(f"torch predicted {timer()-startT:.3f}")
 
 coreml_output = torch.from_numpy(
         decoder.predict({'x': x,
                          'xa': xa,
                          'qk_mask': qk_mask})['out_x']
 )
+print(f"coreml predicted {timer()-startT:.3f}")
 print(f"coreml {modelSize} model output:", coreml_output[:,0,:2])
 diff = torch.abs(torch_output - coreml_output).detach()
 print("diff avg,max:", torch.mean(diff), torch.max(diff))

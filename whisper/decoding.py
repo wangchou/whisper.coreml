@@ -166,7 +166,13 @@ class PyTorchInference(Inference):
 
         if self.model.text_offset == 0:
             self.model.cross_kv_caches = new_ckv
-            self.model.masked_kv_caches = new_mkv
+            # append zeros to 448 len
+            zeros_shape = (new_mkv.shape[0],
+                           new_mkv.shape[1],
+                           448 - self.model.decoder.max_n_ctx_for_1st,
+                           new_mkv.shape[3])
+            self.model.masked_kv_caches = torch.cat([new_mkv,
+                                                     torch.zeros(zeros_shape)], dim=2)
         else:
             from_offset = self.model.text_offset
             to_offset = self.model.text_offset + n_ctx
@@ -189,7 +195,6 @@ class PyTorchInference(Inference):
         if not is_same_order:
             for i in range(0, self.n_text_layer * 2):
                 self.model.masked_kv_caches[i] = self.model.masked_kv_caches[i][source_indices]
-        #        self.model.cross_kv_caches[i] = self.model.cross_kv_caches[i][source_indices]
         #print(f"rearrange cache tooks  {timer()-startT:.3f} ({is_same_order})")
 
 class SequenceRanker:

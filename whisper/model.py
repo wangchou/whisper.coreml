@@ -361,6 +361,10 @@ class TextDecoder(nn.Module):
         self.register_buffer("mask", mask, persistent=False)
         self.coremlDecoder = None
 
+        # max token len for first time = max_prefix_len(224) + sot_len(3)
+        # not sure why... decoder227 is slower than decoder256
+        self.max_n_ctx_for_1st = 256
+
     def forward(self, x: Tensor, xa: Tensor,
                 text_offset: Tensor,
                 isNewCKV: Tensor,
@@ -378,11 +382,17 @@ class TextDecoder(nn.Module):
         x = x.to(xa.dtype)
 
         if text_offset == 0:
-            qk_mask = (torch.ones(448, 448) * -np.inf).triu_(1)
+            max_n_ctx = self.max_n_ctx_for_1st
+            qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf
-            ## fix shape by appending zeros to 448
-            x = torch.cat([x, torch.zeros(n_batch, 448-n_ctx, self.n_state)], dim=1)
-            x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+            ## fix shape by appending zeros to max_n_ctx
+            x = torch.cat([x, torch.zeros(n_batch, max_n_ctx-n_ctx, self.n_state)], dim=1)
+            x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x,
+                                                                                         xa,
+                                                                                         qk_mask,
+                                                                                         masked_kv_caches,
+                                                                                         cross_kv_caches,
+                                                                                         isNewCKV)
             x = x[:,:n_ctx, :]
             cross_qks = cross_qks[:, :, :n_ctx, :]
             logits = (
