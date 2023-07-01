@@ -208,6 +208,87 @@ class CoremlEncoder():
         else:
             return "unknown_model_size"
 ########################################
+class CoremlDecoder256():
+    def __init__(self, n_layer: int, n_state: int, n_head: int):
+        self.n_layer = n_layer
+        self.n_state = n_state
+        self.n_head = n_head
+        self.decoderObj = None
+        self.mlmodel_handle = None
+
+    def loadModel(self):
+        if self.mlmodel_handle == None:
+            modelSize = self.getModelSize(self.n_state)
+            self.decoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/decoder256Wrapper.so')
+            self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int]
+            self.decoderObj.loadModel.restype = c_void_p
+            c_string = bytes(f'./coreml/{modelSize}/CoremlDecoder256.mlmodelc', 'ascii')
+            self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head)
+
+            bs = 5 # beam_size
+            n_head = 6 # tiny=6, base=8, small=12, medium=16, large=20
+            n_state = self.n_state
+            n_layer = self.n_layer
+            max_n_ctx = 256
+
+            dtype1=torch.float32
+            # prepare output buffers
+            self.out_x = torch.ones((bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
+            self.out_cross_qks = torch.ones((n_layer * bs, n_head, max_n_ctx, 1500), dtype=dtype1).contiguous()
+            self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
+            self.new_cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state), dtype=dtype1).contiguous()
+            self.outXPtr = ctypes.cast(self.out_x.data_ptr(), POINTER(c_float))
+            self.outCQKPtr = ctypes.cast(self.out_cross_qks.data_ptr(), POINTER(c_float))
+            self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), POINTER(c_float))
+            self.outCKVPtr = ctypes.cast(self.new_cross_kv_caches.data_ptr(), POINTER(c_float))
+
+    def predictWith(self, x, xa, qk_mask):
+        if self.mlmodel_handle == None:
+            self.loadModel()
+        self.decoderObj.predictWith.argtypes = [c_void_p,
+                                                POINTER(c_float), POINTER(c_float), POINTER(c_float),
+                                                c_int, c_int, c_int,
+                                                POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float)]
+        self.decoderObj.predictWith.restypes = None
+
+        # prepare inputs
+        x = x.contiguous()
+        xPtr = ctypes.cast(x.data_ptr(), POINTER(c_float))
+        xa = xa.contiguous()
+        xaPtr = ctypes.cast(xa.data_ptr(), POINTER(c_float))
+        qk_mask = qk_mask.contiguous()
+        qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), POINTER(c_float))
+
+        # predict
+        #startT = timer()
+        self.decoderObj.predictWith(self.mlmodel_handle,
+                                    xPtr, xaPtr, qkMaskPtr,
+                                    self.n_layer, self.n_state, self.n_head,
+                                    self.outXPtr, self.outCQKPtr, self.outMKVPtr, self.outCKVPtr)
+        #print(f"\tpredictWit took {timer() - startT:.3f}")
+
+        return self.out_x, self.out_cross_qks, self.new_masked_kv_caches, self.new_cross_kv_caches
+
+    def closeModel(self):
+        if self.mlmodel_handle != None:
+            self.decoderObj.closeModel.argtypes = [c_void_p]
+            self.decoderObj.closeModel.restypes = None
+            self.decoderObj.closeModel(self.mlmodel_handle)
+
+    def getModelSize(self, n_state: int):
+        if n_state == 384:
+            return "tiny"
+        elif n_state == 512:
+            return "base"
+        elif n_state == 768:
+            return "small"
+        elif n_state == 1024:
+            return "medium"
+        elif n_state == 1280:
+            return "large"
+        else:
+            return "unknown_model_size"
+########################################
 class CoremlDecoder():
     def __init__(self, n_layer: int, n_state: int, n_head: int):
         self.n_layer = n_layer
@@ -360,6 +441,7 @@ class TextDecoder(nn.Module):
         mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
         self.register_buffer("mask", mask, persistent=False)
         self.coremlDecoder = None
+        self.coremlDecoder256 = None
 
         # max token len for first time = max_prefix_len(224) + sot_len(3)
         # not sure why... decoder227 is slower than decoder256
@@ -417,14 +499,21 @@ class TextDecoder(nn.Module):
 
         ############################
         # Coreml Decoder part
-        #if masked_kv_caches is not None and x.shape[1] == 1:
-        #    #startT = timer()
-        #    if self.coremlDecoder == None:
-        #        self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
-        #    logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
-        #    #print(f"\tcoreml decoder took {timer() - startT:.3f}")
-        #    return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
-        ###########################3
+        if masked_kv_caches is not None and x.shape[1] == 1:
+            if self.coremlDecoder == None:
+                self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
+            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+            #print(f"\tcoreml decoder took {timer() - startT:.3f}")
+            return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+
+        elif x.shape[0] == 5 and x.shape[1] == 256:
+            startT = timer()
+            if self.coremlDecoder256 == None:
+                self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head)
+            x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.coremlDecoder256.predictWith(x, xa, qk_mask)
+        #    print(f"\tcoreml decoder256 took {timer() - startT:.3f}")
+            return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        ##########################3
 
         cross_qks = []
         new_masked_kv_caches = []
@@ -471,7 +560,7 @@ class TextDecoder(nn.Module):
             logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
 
             return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
-        else: # decoder448
+        else: # decoder256
             return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
 class Whisper(nn.Module):

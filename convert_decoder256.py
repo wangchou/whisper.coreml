@@ -12,6 +12,7 @@ modelSize = "tiny"
 model = whisper.load_model(modelSize).cpu()
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
+n_head = 6
 
 decoder = model.decoder
 decoder.eval()
@@ -65,7 +66,7 @@ print(f"saved {timer()-startT:.3f}")
 
 ## test accuracy
 torch_output = traced_decoder.forward(x, xa, qk_mask)[0]
-print("torch model output:", torch_output[:,0,:2])
+print("torch model output:", torch_output[:,0,:2], torch_output[:,max_n_ctx-1,n_state-1])
 print(f"torch predicted {timer()-startT:.3f}")
 
 coreml_output = torch.from_numpy(
@@ -74,7 +75,6 @@ coreml_output = torch.from_numpy(
                          'qk_mask': qk_mask})['out_x']
 )
 print(f"coreml predicted {timer()-startT:.3f}")
-print(f"coreml {modelSize} model output:", coreml_output[:,0,:2])
+print(f"coreml {modelSize} model output:", coreml_output[:,0,:2], coreml_output[:,max_n_ctx-1,n_state-1])
 diff = torch.abs(torch_output - coreml_output).detach()
 print("diff avg,max:", torch.mean(diff), torch.max(diff))
-

@@ -180,6 +180,7 @@ class PyTorchInference(Inference):
 
         self.model.text_offset += n_ctx
 
+
         #print(f"PyTorchInference tooks {timer()-startT:.3f}")
         return output, cross_qks
 
