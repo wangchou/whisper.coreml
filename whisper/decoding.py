@@ -181,7 +181,7 @@ class PyTorchInference(Inference):
         self.model.text_offset += n_ctx
 
 
-        #print(f"PyTorchInference tooks {timer()-startT:.3f}")
+        #print(f"PyTorchInference tooks {timer()-startT:.4f}")
         return output, cross_qks
 
     def cleanup_caching(self):
@@ -194,9 +194,14 @@ class PyTorchInference(Inference):
         is_same_order = source_indices == list(range(len(source_indices)))
 
         if not is_same_order:
+            # numpy is faster than torch 0.0026 -> 0.0016
+            np_array = self.model.masked_kv_caches.numpy()
             for i in range(0, self.n_text_layer * 2):
-                self.model.masked_kv_caches[i] = self.model.masked_kv_caches[i][source_indices]
-        #print(f"rearrange cache tooks  {timer()-startT:.3f} ({is_same_order})")
+                np_array[i] = np_array[i][source_indices]
+                #self.model.masked_kv_caches[i] = self.model.masked_kv_caches[i][source_indices]
+
+            self.model.masked_kv_caches = torch.from_numpy(np_array)
+        #print(f"rearrange cache tooks  {timer()-startT:.4f} ({is_same_order})")
 
 class SequenceRanker:
     def rank(

@@ -20,7 +20,7 @@ decoder.eval()
 inType=np.float16
 # coreml has some issue when output type = fp16 when using ane or gpu
 # https://github.com/apple/coremltools/issues/1893
-outType=np.float32
+outType=np.float16
 
 bs = 5 # beam_size
 

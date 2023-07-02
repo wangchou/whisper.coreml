@@ -555,7 +555,7 @@ class TextDecoder(nn.Module):
         x = self.ln(x)
 
         if qk_mask.shape[0] == 1: # decoder1
-            splits = self.token_embedding.weight.split(self.n_vocab//11, dim=0)
+            splits = self.token_embedding.weight.split(self.n_vocab//5, dim=0)
             x = x.view(*x.shape[:2], self.n_state)
             logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
 
@@ -621,6 +621,7 @@ class Whisper(nn.Module):
     def forward(
         self, mel: torch.Tensor, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
+        #startT = timer()
         if self.text_offset == 0:
             self.masked_kv_caches = None
         output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens,
@@ -632,6 +633,7 @@ class Whisper(nn.Module):
         # this only called once in each add_word_timestamps,
         # => no next call
         # => no need for update self.xxx_cache
+        #print(f"Model.forward tooks {timer()-startT:.4f}")
         return output, cross_qks
 
     @property

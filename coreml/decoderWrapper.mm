@@ -148,8 +148,6 @@ void predictWith(
         float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 5 * 1500 * n_state);
     }
 
-    //NSLog(@"f32 to f16 %.3f %s", CACurrentMediaTime() - startT, isNewCKV ? "True" : "False");
-
     CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX xa:inXa qk_mask:inQk_mask masked_kv_caches:inMkv cross_kv_caches:inCkv];
 
     // output arrays
