@@ -2,8 +2,8 @@ tiny: tiny/encoderWrapper.so tiny/decoderTest tiny/decoder256Test
 
 tiny/encoderWrapper.so: encoderWrapper.h encoderWrapper.mm
 	cp encoderWrapper* ${@D}
-	xcrun coremlc compile ${@D}/CoremlEncoder.mlmodel ${@D}
-	xcrun coremlc generate ${@D}/CoremlEncoder.mlmodel ${@D}
+	xcrun coremlc compile ${@D}/CoremlEncoder.mlpackage ${@D}
+	xcrun coremlc generate ${@D}/CoremlEncoder.mlpackage ${@D}
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/encoderWrapper.mm ${@D}/CoremlEncoder.m -o ${@D}/encoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
 
 tiny/decoderTest: decoderTest.cpp tiny/decoderWrapper.so

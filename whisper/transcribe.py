@@ -234,7 +234,7 @@ def transcribe(
             decode_options["prompt"] = all_tokens[prompt_reset_since:]
             result: DecodingResult = decode_with_fallback(mel_segment)
             tokens = torch.tensor(result.tokens)
-            print(f"\n{timer() - startT} predicted {seek}")
+            print(f"\n{timer() - startT:.3f} predicted {seek}")
 
             if no_speech_threshold is not None:
                 # no voice activity check
@@ -334,7 +334,7 @@ def transcribe(
                     )
                     if seek_shift > 0:
                         seek = previous_seek + seek_shift
-                print(timer() - startT, "word_timestamps added")
+                print(f"{timer()-startT:.3f} word timestamps added")
 
             if verbose:
                 for segment in current_segments:
@@ -414,7 +414,6 @@ def cli():
     parser.add_argument("--max_line_count", type=optional_int, default=None, help="(requires --word_timestamps True) the maximum number of lines in a segment")
     parser.add_argument("--threads", type=optional_int, default=0, help="number of threads used by torch for CPU inference; supercedes MKL_NUM_THREADS/OMP_NUM_THREADS")
     # fmt: on
-    startT = timer()
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
     model_dir: str = args.pop("model_dir")
@@ -454,7 +453,6 @@ def cli():
     writer_args = {arg: args.pop(arg) for arg in word_options}
 
     for audio_path in args.pop("audio"):
-        print(f"\n---\nprepare time before transcribe(load_model...): {timer() - startT: .3f}\n---")
         startT = timer()
         result = transcribe(model, audio_path, temperature=temperature, **args)
         print(f"---\ntotal time on transcribe(): {timer() - startT: .3f}\n")

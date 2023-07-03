@@ -34,7 +34,7 @@ int main() {
     float* cross_kv_caches =  getOnes( n_layer * 2 * bs * 1500 * n_state);// (n_layer * 2, bs, 1500, n_state)
 
     float* out_x = getOnes(bs * 51865); // (bs, 1, n_state)
-    float* out_cross_qks = getOnes( n_layer * 2 * bs * n_head * 1500);// (n_layer * bs, n_head, 1, 1500)
+    float* out_cross_qks = getOnes(1);// (n_layer * bs, n_head, 1, 1500)
     float* out_new_masked_kv_caches = getOnes( n_layer * 2 * bs * 1 * n_state); // (n_layer * 2, bs, 1, n_state)
     float* out_new_cross_kv_caches  = getOnes( 1);// (1)
 

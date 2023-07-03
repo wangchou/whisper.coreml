@@ -7,7 +7,6 @@ import os
 # model setting
 modelSize = "tiny"
 model = whisper.load_model(modelSize).cpu()
-n_state = 384 # tiny=384, base=512, small=768, medium=1024, large=1280
 
 # trace model by torch.jit
 encoder = model.encoder
@@ -19,24 +18,23 @@ traced_encoder = torch.jit.trace(encoder, melSegment)
 # convert to coreml model
 encoder = ct.convert(
     traced_encoder,
-    #convert_to="mlprogram",
+    convert_to="mlprogram",
     inputs=[ct.TensorType(name="melSegment", shape=melSegment.shape)],
     outputs=[ct.TensorType(name="output")],
     compute_units=ct.ComputeUnit.ALL,
 )
 
-encoder_fp16 = quantization_utils.quantize_weights(encoder, nbits=16)
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
-encoder_fp16.save(f"{folder_path}/CoremlEncoder.mlmodel")
+encoder.save(f"{folder_path}/CoremlEncoder.mlpackage")
 
 # test accuracy
 torch_output = traced_encoder.forward(melSegment)
 print("torch model output:", torch_output)
 melSegment = melSegment.cpu().detach().numpy()
 coreml_output = torch.from_numpy(
-  list(encoder_fp16.predict({'melSegment': melSegment}).values())[0]
+  list(encoder.predict({'melSegment': melSegment}).values())[0]
 )
 print(f"coreml {modelSize} model output:", coreml_output)
 diff = torch.abs(torch_output - coreml_output).detach()

@@ -37,6 +37,7 @@ MLMultiArray *outQKs;
 MLMultiArray *outMKV;
 MLMultiArray *outCKV;
 uint16* out_ckv_fp16;
+uint16* out_qks_fp16;
 
 #if __cplusplus
 extern "C" {
@@ -109,10 +110,11 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     // output arrays
     int f32_multiple = 2;
     outX = getPixelBufferArray3(5, 1, 51865 * f32_multiple);
-    outQKs = getPixelBufferArray4(n_layer*5, n_head, 1, 1500 * f32_multiple);
     outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state * f32_multiple);
 
-    out_ckv_fp16 = (uint16 *) malloc(sizeof(uint16)); // tiny~=46MB, small~=270MB, large ~= 1.2GB
+    out_qks_fp16 = (uint16 *) malloc(sizeof(uint16));
+    outQKs = getArray1(out_qks_fp16, 1, MLMultiArrayDataTypeFloat16);
+    out_ckv_fp16 = (uint16 *) malloc(sizeof(uint16));
     outCKV = getArray1(out_ckv_fp16, 1, MLMultiArrayDataTypeFloat16);
     return model;
 }
@@ -188,9 +190,9 @@ void closeModel(const void* model) {
    CFRelease(inCkv.pixelBuffer);
 
    CFRelease(outX.pixelBuffer);
-   CFRelease(outQKs.pixelBuffer);
    CFRelease(outMKV.pixelBuffer);
 
+   free(out_qks_fp16);
    free(out_ckv_fp16);
 }
 
