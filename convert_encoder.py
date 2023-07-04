@@ -42,7 +42,7 @@ print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
 # note
 # convertion time on Macbook M1 Air 16GB
-# tiny:       28s
-# small:   5 mins
-# medium: 40 mins (29GB)
-# large:  crashed, use 60+GB memory after 23mins
+# tiny:       10s
+# small:    1m10s
+# medium:   7m15s
+# large:

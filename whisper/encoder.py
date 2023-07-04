@@ -53,9 +53,15 @@ class ResidualAttentionBlock(nn.Module):
             nn.Linear(n_state, n_mlp), nn.GELU(), nn.Linear(n_mlp, n_state)
         )
         self.mlp_ln = nn.LayerNorm(n_state)
+        self.n_state = n_state
 
     def forward(self, x: Tensor):
+        # a workaround for fixing coreml conversion time grows a lot on small model
+        # it's related to LayerNorm and LayerCount
+        x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
         x = x + self.attn(self.attn_ln(x))
+
+        x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
         x = x + self.mlp(self.mlp_ln(x))
         return x
 

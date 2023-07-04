@@ -69,12 +69,15 @@ torch_output = traced_decoder.forward(x, xa, qk_mask)[0]
 print("torch model output:", torch_output[:,0,:2], torch_output[:,max_n_ctx-1,n_state-1])
 print(f"torch predicted {timer()-startT:.3f}")
 
-coreml_output = torch.from_numpy(
-        decoder.predict({'x': x,
-                         'xa': xa,
-                         'qk_mask': qk_mask})['out_x']
-)
-print(f"coreml predicted {timer()-startT:.3f}")
-print(f"coreml {modelSize} model output:", coreml_output[:,0,:2], coreml_output[:,max_n_ctx-1,n_state-1])
-diff = torch.abs(torch_output - coreml_output).detach()
-print("diff avg,max:", torch.mean(diff), torch.max(diff))
+# coremltools has some issue on np.float16 output
+# it will took so long to convert fp16 to fp32 for python
+#coreml_output = torch.from_numpy(
+#        decoder.predict({'x': x,
+#                         'xa': xa,
+#                         'qk_mask': qk_mask})['out_x']
+#)
+
+#print(f"coreml predicted {timer()-startT:.3f}")
+#print(f"coreml {modelSize} model output:", coreml_output[:,0,:2], coreml_output[:,max_n_ctx-1,n_state-1])
+#diff = torch.abs(torch_output - coreml_output).detach()
+#print("diff avg,max:", torch.mean(diff), torch.max(diff))
