@@ -8,6 +8,44 @@ from torch import Tensor, nn
 from .coreml import CoremlEncoder
 from timeit import default_timer as timer
 
+#--- copied from ml-ane-transformers and ANE-Optimized-Whisper-OpenAI
+
+from ane_transformers.reference.layer_norm import LayerNormANE
+
+# Note: Original implementation of distilbert uses an epsilon value of 1e-12
+# which is not friendly with the float16 precision that ANE uses by default
+EPS = 1e-7
+
+# Note: torch.nn.LayerNorm and ane_transformers.reference.layer_norm.LayerNormANE
+# apply scale and bias terms in opposite orders. In order to accurately restore a
+# state_dict trained using the former into the the latter, we adjust the bias term
+def correct_for_bias_scale_order_inversion(state_dict, prefix, local_metadata,
+                                           strict, missing_keys,
+                                           unexpected_keys, error_msgs):
+    state_dict[prefix +
+               'bias'] = state_dict[prefix + 'bias'] / state_dict[prefix +
+                                                                  'weight']
+    return state_dict
+
+
+class LayerNormANE(LayerNormANE):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._register_load_state_dict_pre_hook(
+            correct_for_bias_scale_order_inversion)
+
+def linear_to_conv2d_map(state_dict, prefix, local_metadata, strict,
+                         missing_keys, unexpected_keys, error_msgs):
+    """ Unsqueeze twice to map nn.Linear weights to nn.Conv2d weights
+    """
+    for k in state_dict:
+        is_linear = all(substr in k for substr in ['attn.', '.weight']) or all(substr in k for substr in ['mlp.', '.weight'])
+        if is_linear:
+            if len(state_dict[k].shape) == 2:
+                state_dict[k] = state_dict[k][:, :, None, None]
+#--- copied ended
+
 def sinusoids(length, channels, max_timescale=10000):
     """Returns sinusoids for positional embedding"""
     assert channels % 2 == 0
@@ -20,48 +58,65 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
         self.n_head = n_head
-        self.query = nn.Linear(n_state, n_state)
-        self.key = nn.Linear(n_state, n_state, bias=False)
-        self.value = nn.Linear(n_state, n_state)
-        self.out = nn.Linear(n_state, n_state)
-        self.qk_scale = (n_state // n_head) ** -0.5
+        self.dim_per_head = (n_state// n_head)
+        self.qk_scale = (self.dim_per_head) ** -0.5
+
+        self.query = nn.Conv2d(n_state, n_state, kernel_size=1)
+        self.key = nn.Conv2d(n_state, n_state, kernel_size=1, bias=False)
+        self.value = nn.Conv2d(n_state, n_state, kernel_size=1)
+        self.out = nn.Conv2d(n_state, n_state, kernel_size=1)
 
     def forward(self, x: Tensor):
+        #bs, dim, dummy, seqlen = x.shape
+        #print("x", x.shape)
+
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
 
-        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
-        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
-        v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        mh_q = q.split(self.dim_per_head, dim=1)
+        mh_k = k.transpose(1, 3).split(self.dim_per_head, dim=3)
+        mh_v = v.split(self.dim_per_head, dim=1)
 
-        qk = q @ k * self.qk_scale
+        attn_weights = [
+            torch.einsum('bchq,bkhc->bkhq', [qi, ki]) * self.qk_scale
+            for qi, ki in zip(mh_q, mh_k)
+        ]
 
-        w = F.softmax(qk, dim=-1)
-        wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
-        return self.out(wv)
+        attn_weights = [aw.softmax(dim=1) for aw in attn_weights]
+        attn = [
+            torch.einsum('bkhq,bchk->bchq', wi, vi)
+            for wi, vi in zip(attn_weights, mh_v)
+        ]
+
+        attn = torch.cat(attn, dim=1)
+
+        attn = self.out(attn)
+        #print("attn", attn.shape)
+
+        return attn
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
         super().__init__()
 
         self.attn = MultiHeadAttention(n_state, n_head)
-        self.attn_ln = nn.LayerNorm(n_state)
+        self.attn_ln = LayerNormANE(n_state, eps=EPS)
 
         n_mlp = n_state * 4
         self.mlp = nn.Sequential(
-            nn.Linear(n_state, n_mlp), nn.GELU(), nn.Linear(n_mlp, n_state)
+            nn.Conv2d(n_state, n_mlp, kernel_size=1), nn.GELU(), nn.Conv2d(n_mlp, n_state, kernel_size=1)
         )
-        self.mlp_ln = nn.LayerNorm(n_state)
+        self.mlp_ln = LayerNormANE(n_state, eps=EPS)
         self.n_state = n_state
 
     def forward(self, x: Tensor):
         # a workaround for fixing coreml conversion time grows a lot on small model
         # it's related to LayerNorm and LayerCount
-        x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
+        #x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
         x = x + self.attn(self.attn_ln(x))
 
-        x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
+        #x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
@@ -77,9 +132,11 @@ class AudioEncoder(nn.Module):
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [ResidualAttentionBlock(n_state, n_head) for _ in range(n_layer)]
         )
-        self.ln_post = nn.LayerNorm(n_state)
+        self.ln_post = LayerNormANE(n_state, eps=EPS)
         self.coremlEncoder = None
         self.n_state = n_state
+
+        self._register_load_state_dict_pre_hook(linear_to_conv2d_map)
 
     def forward(self, x: Tensor):
         """
@@ -99,7 +156,11 @@ class AudioEncoder(nn.Module):
         assert x.shape[1:] == self.positional_embedding.shape, "incorrect audio shape"
         x = (x + self.positional_embedding)
 
+        x = x.transpose(1, 2).unsqueeze(2)
         for block in self.blocks:
             x = block(x)
+        x = self.ln_post(x)
 
-        return self.ln_post(x)
+        x = x.squeeze(2).transpose(1,2)
+        #print(x.shape)
+        return x
