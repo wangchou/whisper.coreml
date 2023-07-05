@@ -9,38 +9,12 @@ from .coreml import CoremlEncoder
 from timeit import default_timer as timer
 
 #--- copied from ml-ane-transformers and ANE-Optimized-Whisper-OpenAI
-
-from ane_transformers.reference.layer_norm import LayerNormANE
-
-# Note: Original implementation of distilbert uses an epsilon value of 1e-12
-# which is not friendly with the float16 precision that ANE uses by default
-EPS = 1e-7
-
-# Note: torch.nn.LayerNorm and ane_transformers.reference.layer_norm.LayerNormANE
-# apply scale and bias terms in opposite orders. In order to accurately restore a
-# state_dict trained using the former into the the latter, we adjust the bias term
-def correct_for_bias_scale_order_inversion(state_dict, prefix, local_metadata,
-                                           strict, missing_keys,
-                                           unexpected_keys, error_msgs):
-    state_dict[prefix +
-               'bias'] = state_dict[prefix + 'bias'] / state_dict[prefix +
-                                                                  'weight']
-    return state_dict
-
-
-class LayerNormANE(LayerNormANE):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._register_load_state_dict_pre_hook(
-            correct_for_bias_scale_order_inversion)
-
 def linear_to_conv2d_map(state_dict, prefix, local_metadata, strict,
                          missing_keys, unexpected_keys, error_msgs):
     """ Unsqueeze twice to map nn.Linear weights to nn.Conv2d weights
     """
     for k in state_dict:
-        is_linear = all(substr in k for substr in ['attn.', '.weight']) or all(substr in k for substr in ['mlp.', '.weight'])
+        is_linear = all(substr in k for substr in ['attn.', '.weight'])
         if is_linear:
             if len(state_dict[k].shape) == 2:
                 state_dict[k] = state_dict[k][:, :, None, None]
@@ -67,8 +41,8 @@ class MultiHeadAttention(nn.Module):
         self.out = nn.Conv2d(n_state, n_state, kernel_size=1)
 
     def forward(self, x: Tensor):
-        #bs, dim, dummy, seqlen = x.shape
-        #print("x", x.shape)
+        # (1, 1500, 384) -> (1, 1500, 1, 384)
+        x = x.transpose(1, 2).unsqueeze(2)
 
         q = self.query(x)
         k = self.key(x)
@@ -92,7 +66,8 @@ class MultiHeadAttention(nn.Module):
         attn = torch.cat(attn, dim=1)
 
         attn = self.out(attn)
-        #print("attn", attn.shape)
+        # (1, 1500, 1, 384) -> (1, 1500, 384)
+        attn = attn.squeeze(2).transpose(1,2)
 
         return attn
 
@@ -101,22 +76,17 @@ class ResidualAttentionBlock(nn.Module):
         super().__init__()
 
         self.attn = MultiHeadAttention(n_state, n_head)
-        self.attn_ln = LayerNormANE(n_state, eps=EPS)
+        self.attn_ln = nn.LayerNorm(n_state)
 
         n_mlp = n_state * 4
         self.mlp = nn.Sequential(
-            nn.Conv2d(n_state, n_mlp, kernel_size=1), nn.GELU(), nn.Conv2d(n_mlp, n_state, kernel_size=1)
+            nn.Linear(n_state, n_mlp), nn.GELU(), nn.Linear(n_mlp, n_state)
         )
-        self.mlp_ln = LayerNormANE(n_state, eps=EPS)
+        self.mlp_ln = nn.LayerNorm(n_state)
         self.n_state = n_state
 
     def forward(self, x: Tensor):
-        # a workaround for fixing coreml conversion time grows a lot on small model
-        # it's related to LayerNorm and LayerCount
-        #x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
         x = x + self.attn(self.attn_ln(x))
-
-        #x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1).split(1500, dim=1)[0]
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
@@ -132,7 +102,7 @@ class AudioEncoder(nn.Module):
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [ResidualAttentionBlock(n_state, n_head) for _ in range(n_layer)]
         )
-        self.ln_post = LayerNormANE(n_state, eps=EPS)
+        self.ln_post = nn.LayerNorm(n_state)
         self.coremlEncoder = None
         self.n_state = n_state
 
@@ -144,9 +114,9 @@ class AudioEncoder(nn.Module):
             the mel spectrogram of the audio
         """
         ############################
-        #if self.coremlEncoder == None:
-        #    self.coremlEncoder = CoremlEncoder(self.n_state)
-        #return self.coremlEncoder.predictWith(x)
+        if self.coremlEncoder == None:
+            self.coremlEncoder = CoremlEncoder(self.n_state)
+        return self.coremlEncoder.predictWith(x)
         ###########################3
 
         x = F.gelu(self.conv1(x))
@@ -156,11 +126,9 @@ class AudioEncoder(nn.Module):
         assert x.shape[1:] == self.positional_embedding.shape, "incorrect audio shape"
         x = (x + self.positional_embedding)
 
-        x = x.transpose(1, 2).unsqueeze(2)
         for block in self.blocks:
             x = block(x)
         x = self.ln_post(x)
 
-        x = x.squeeze(2).transpose(1,2)
         #print(x.shape)
         return x
