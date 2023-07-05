@@ -8,18 +8,6 @@ from torch import Tensor, nn
 from .coreml import CoremlEncoder
 from timeit import default_timer as timer
 
-#--- copied from ml-ane-transformers and ANE-Optimized-Whisper-OpenAI
-def linear_to_conv2d_map(state_dict, prefix, local_metadata, strict,
-                         missing_keys, unexpected_keys, error_msgs):
-    """ Unsqueeze twice to map nn.Linear weights to nn.Conv2d weights
-    """
-    for k in state_dict:
-        is_linear = all(substr in k for substr in ['attn.', '.weight'])
-        if is_linear:
-            if len(state_dict[k].shape) == 2:
-                state_dict[k] = state_dict[k][:, :, None, None]
-#--- copied ended
-
 def sinusoids(length, channels, max_timescale=10000):
     """Returns sinusoids for positional embedding"""
     assert channels % 2 == 0
@@ -35,21 +23,24 @@ class MultiHeadAttention(nn.Module):
         self.dim_per_head = (n_state// n_head)
         self.qk_scale = (self.dim_per_head) ** -0.5
 
-        self.query = nn.Conv2d(n_state, n_state, kernel_size=1)
-        self.key = nn.Conv2d(n_state, n_state, kernel_size=1, bias=False)
-        self.value = nn.Conv2d(n_state, n_state, kernel_size=1)
-        self.out = nn.Conv2d(n_state, n_state, kernel_size=1)
+        self.query = nn.Linear(n_state, n_state)
+        self.key = nn.Linear(n_state, n_state, bias=False)
+        self.value = nn.Linear(n_state, n_state)
+        self.out = nn.Linear(n_state, n_state)
 
     def forward(self, x: Tensor):
-        # (1, 1500, 384) -> (1, 1500, 1, 384)
-        x = x.transpose(1, 2).unsqueeze(2)
-
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
 
+        #--- magic from https://github.com/apple/ml-ane-transformers/blob/da64000fa56cc85b0859bc17cb16a3d753b8304a/ane_transformers/huggingface/distilbert.py#L151
+        # (1, 1500, 384) -> (1, 384, 1, 1500)
+        q = q.transpose(1, 2).unsqueeze(2)
+        k = k.unsqueeze(2)
+        v = v.transpose(1, 2).unsqueeze(2)
+
         mh_q = q.split(self.dim_per_head, dim=1)
-        mh_k = k.transpose(1, 3).split(self.dim_per_head, dim=3)
+        mh_k = k.split(self.dim_per_head, dim=3)
         mh_v = v.split(self.dim_per_head, dim=1)
 
         attn_weights = [
@@ -65,9 +56,11 @@ class MultiHeadAttention(nn.Module):
 
         attn = torch.cat(attn, dim=1)
 
-        attn = self.out(attn)
-        # (1, 1500, 1, 384) -> (1, 1500, 384)
+        # (1, 384, 1, 1500) -> (1, 1500, 384)
         attn = attn.squeeze(2).transpose(1,2)
+        #--- end of magic
+
+        attn = self.out(attn)
 
         return attn
 
@@ -105,8 +98,6 @@ class AudioEncoder(nn.Module):
         self.ln_post = nn.LayerNorm(n_state)
         self.coremlEncoder = None
         self.n_state = n_state
-
-        self._register_load_state_dict_pre_hook(linear_to_conv2d_map)
 
     def forward(self, x: Tensor):
         """
