@@ -5,7 +5,7 @@ from coremltools.models.neural_network import quantization_utils
 import os
 
 # model setting
-modelSize = "small"
+modelSize = "tiny"
 model = whisper.load_model(modelSize).cpu()
 
 # trace model by torch.jit
