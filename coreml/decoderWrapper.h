@@ -10,7 +10,7 @@ void predictWith(
     float* xa, // (bs, 1500, n_state)
     float* qk_mask, // (1, 449)
     float* masked_kv_caches, // (n_layer * 2, bs, 448, n_state)
-    float* cross_kv_caches, // (n_layer * 2, bs, 1500, n_state)
+    float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
     int n_layer,
     int n_state,
     int n_head, // tiny=6, base=8, small=12, medium=16, large=20

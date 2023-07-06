@@ -25,7 +25,7 @@ x = torch.ones((bs, 1, n_state))
 xa = torch.ones((bs, 1500, n_state))
 qk_mask = torch.zeros((1,449))
 masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state))
-cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state))
+cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state))
 
 traced_decoder = torch.jit.trace_module(decoder,
                                         {'forwardBlocks': (x, xa, qk_mask, masked_kv_caches, cross_kv_caches)})

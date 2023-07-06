@@ -60,8 +60,8 @@ class MultiHeadAttention(nn.Module):
         new_k = torch.zeros(1)
         new_v = torch.zeros(1)
         if cache_k is None or xa is None:
-            k = self.key(x if xa is None else xa)
-            v = self.value(x if xa is None else xa)
+            k = self.key(x if xa is None else xa.split(1)[0]) # cross_kv is the same for all beams
+            v = self.value(x if xa is None else xa.split(1)[0])
 
             new_k = k
             new_v = v

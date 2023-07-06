@@ -15,7 +15,7 @@ void predictWith(
     float* out_x, // (bs, 256, n_state)
     float* out_cross_qks, // (n_layer * bs, n_head, 256, 1500)
     float* out_new_masked_kv_caches, // (n_layer * 2, bs, 256, n_state)
-    float* out_new_cross_kv_caches // (n_layer * 2, bs, 1500, n_state)
+    float* out_new_cross_kv_caches // (n_layer * 2, 1, 1500, n_state)
 );
 
 #if __cplusplus

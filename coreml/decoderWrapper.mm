@@ -105,7 +105,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     inXa = getPixelBufferArray3(5, 1500, n_state);
     inQk_mask = getPixelBufferArray2(1, 449);
     inMkv = getPixelBufferArray4(n_layer*2, 5, 448, n_state);
-    inCkv = getPixelBufferArray4(n_layer*2, 5, 1500, n_state);
+    inCkv = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
 
     // output arrays
     int f32_multiple = 2;
@@ -125,7 +125,7 @@ void predictWith(
     float* xa, // (bs, 1500, n_state)
     float* qk_mask, // (1, 449)
     float* masked_kv_caches, // (n_layer * 2, bs, 448, n_state)
-    float* cross_kv_caches, // (n_layer * 2, bs, 1500, n_state)
+    float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
     int n_layer,
     int n_state,
     int n_head,
@@ -147,7 +147,7 @@ void predictWith(
 
     // this takes 4ms on tiny, about 40% of this func
     if (isNewCKV) {
-        float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 5 * 1500 * n_state);
+        float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 1 * 1500 * n_state);
     }
 
     CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX xa:inXa qk_mask:inQk_mask masked_kv_caches:inMkv cross_kv_caches:inCkv];

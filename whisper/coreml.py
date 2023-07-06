@@ -84,7 +84,7 @@ class CoremlDecoder256():
             self.out_x = torch.ones((bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
             self.out_cross_qks = torch.ones((n_layer * bs, n_head, max_n_ctx, 1500), dtype=dtype1).contiguous()
             self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
-            self.new_cross_kv_caches = torch.ones((n_layer * 2, bs, 1500, n_state), dtype=dtype1).contiguous()
+            self.new_cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state), dtype=dtype1).contiguous()
             self.outXPtr = ctypes.cast(self.out_x.data_ptr(), POINTER(c_float))
             self.outCQKPtr = ctypes.cast(self.out_cross_qks.data_ptr(), POINTER(c_float))
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), POINTER(c_float))

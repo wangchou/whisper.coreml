@@ -108,7 +108,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     // 1500 -> 1504 for being multiple of 32
     outQKs = getPixelBufferArray4(n_layer*5, n_head, max_n_ctx, 1504);
     outMKV = getPixelBufferArray4(n_layer*2, 5, max_n_ctx, n_state);
-    outCKV = getPixelBufferArray4(n_layer*2, 5, 1500, n_state);
+    outCKV = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
     return model;
 }
 

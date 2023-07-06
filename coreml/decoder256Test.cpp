@@ -35,7 +35,7 @@ int main() {
     float* out_x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
     float* out_cross_qks = getOnes( n_layer * bs * n_head * max_n_ctx * 1500);// (n_layer * bs, n_head, 1, 1500)
     float* out_new_masked_kv_caches = getOnes( n_layer * 2 * bs * max_n_ctx * n_state); // (n_layer * 2, bs, 1, n_state)
-    float* out_new_cross_kv_caches = getOnes( n_layer * 2 * bs * 1500 * n_state); // (n_layer * 2, bs, 1, n_state)
+    float* out_new_cross_kv_caches = getOnes( n_layer * 2 * 1 * 1500 * n_state); // (n_layer * 2, bs, 1, n_state)
 
     for(int i=0; i<5; i++) {
         predictWith(decoder, // model
