@@ -44,7 +44,6 @@ class MultiHeadAttention(nn.Module):
         self.value = Linear(n_state, n_state)
         self.out = Linear(n_state, n_state)
         self.qk_scale = (n_state // n_head) ** -0.5
-        self.dim_per_head = (n_state// n_head)
 
     def forward(
         self,
@@ -54,7 +53,6 @@ class MultiHeadAttention(nn.Module):
         cache_k: Optional[Tensor] = None,
         cache_v: Optional[Tensor] = None,
     ):
-        #print(f"x.shape {x.shape}, qk_mask {qk_mask is None}, cache_k {cache_k is None}")
         q = self.query(x)
 
         # new part of k, without previous cache
@@ -82,38 +80,17 @@ class MultiHeadAttention(nn.Module):
     def qkv_attention(
         self, q: Tensor, k: Tensor, v: Tensor, qk_mask: Optional[Tensor] = None
     ):
-        q = q.transpose(1, 2).unsqueeze(2)
-        k = k.transpose(1, 2).unsqueeze(2)
-        v = v.transpose(1, 2).unsqueeze(2)
+        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
+        v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
-        mh_q = q.split(self.dim_per_head, dim=1)
-        mh_k = k.transpose(1, 3).split(self.dim_per_head, dim=3)
-        mh_v = v.split(self.dim_per_head, dim=1)
-
-        attn_weights = [
-            torch.einsum('bchq,bkhc->bkhq', [qi, ki]) * self.qk_scale
-            for qi, ki in zip(mh_q, mh_k)
-        ]
-
+        qk = q @ k * self.qk_scale
         if qk_mask is not None:
-            qk_mask = qk_mask.transpose(0, 1).unsqueeze(1)
-            for i in range(self.n_head):
-                attn_weights[i] = attn_weights[i] + qk_mask
+            qk = qk + qk_mask
+        qk = qk
 
-        qk = torch.cat(attn_weights, dim=2).permute(0, 2, 3, 1)
-
-        attn_weights = [aw.softmax(dim=1) for aw in attn_weights]
-
-        attn = [
-            torch.einsum('bkhq,bchk->bchq', wi, vi)
-            for wi, vi in zip(attn_weights, mh_v)
-        ]
-
-        attn = torch.cat(attn, dim=1)
-
-        attn = attn.squeeze(2).transpose(1,2)
-
-        return attn, qk
+        w = F.softmax(qk, dim=-1).to(q.dtype)
+        return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
@@ -143,7 +120,6 @@ class ResidualAttentionBlock(nn.Module):
         ck: Optional[Tensor] = None,
         cv: Optional[Tensor] = None,
     ):
-        #print("--- forward ---")
         x_out, masked_qk, new_mk, new_mv = self.attn(self.attn_ln(x), qk_mask=qk_mask, cache_k=mk, cache_v=mv)
         x = x + x_out
         cross_qk = new_ck = new_cv = None
@@ -234,15 +210,15 @@ class TextDecoder(nn.Module):
 
         ############################
         # Coreml Decoder part
-        #if masked_kv_caches is not None and x.shape[1] == 1:
-        #    if self.coremlDecoder == None:
-        #        self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
-        #    return self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+        if masked_kv_caches is not None and x.shape[1] == 1:
+            if self.coremlDecoder == None:
+                self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
+            return self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
-        #elif x.shape[0] == 5 and x.shape[1] == 256:
-        #    if self.coremlDecoder256 == None:
-        #        self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head)
-        #    return self.coremlDecoder256.predictWith(x, xa, qk_mask)
+        elif x.shape[0] == 5 and x.shape[1] == 256:
+            if self.coremlDecoder256 == None:
+                self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head)
+            return self.coremlDecoder256.predictWith(x, xa, qk_mask)
         ############################
 
         cross_qks = []
