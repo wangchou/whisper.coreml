@@ -146,6 +146,10 @@ class PyTorchInference(Inference):
         self.initial_token_length = initial_token_length
         self.n_text_layer = model.dims.n_text_layer
 
+        key_modules = [block.attn.key for block in self.model.decoder.blocks]
+        value_modules = [block.attn.value for block in self.model.decoder.blocks]
+        self.kv_modules = key_modules + value_modules
+
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
         #startT = timer()
         if tokens.shape[-1] > self.initial_token_length:
@@ -190,18 +194,13 @@ class PyTorchInference(Inference):
         self.model.isNewCKV = True
 
     def rearrange_kv_cache(self, source_indices):
-        #startT = timer()
-        is_same_order = source_indices == list(range(len(source_indices)))
-
-        if not is_same_order:
+        if source_indices != list(range(len(source_indices))):
             # numpy is faster than torch 0.0026 -> 0.0016
             np_array = self.model.masked_kv_caches.numpy()
             for i in range(0, self.n_text_layer * 2):
+                # update the key/value cache to contain the selected sequences
                 np_array[i] = np_array[i][source_indices]
-                #self.model.masked_kv_caches[i] = self.model.masked_kv_caches[i][source_indices]
-
             self.model.masked_kv_caches = torch.from_numpy(np_array)
-        #print(f"rearrange cache tooks  {timer()-startT:.4f} ({is_same_order})")
 
 class SequenceRanker:
     def rank(
@@ -704,7 +703,6 @@ class DecodingTask:
         return languages, lang_probs
 
     def _main_loop(self, audio_features: Tensor, tokens: Tensor):
-        assert audio_features.shape[0] == tokens.shape[0]
         n_batch = tokens.shape[0]
         sum_logprobs: Tensor = torch.zeros(n_batch, device=audio_features.device)
         no_speech_probs = [np.nan] * n_batch
@@ -757,8 +755,7 @@ class DecodingTask:
                 )
             ]
 
-        # repeat the audio & text tensors by the group size, for beam search or best-of-n sampling
-        audio_features = audio_features.repeat_interleave(self.n_group, dim=0)
+        # repeat text tensors by the group size, for beam search or best-of-n sampling
         tokens = tokens.repeat_interleave(self.n_group, dim=0).to(audio_features.device)
 
         # call the main sampling loop

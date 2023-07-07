@@ -210,15 +210,15 @@ class TextDecoder(nn.Module):
 
         ############################
         # Coreml Decoder part
-        if masked_kv_caches is not None and x.shape[1] == 1:
-            if self.coremlDecoder == None:
-                self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
-            return self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+        #if masked_kv_caches is not None and x.shape[1] == 1:
+        #    if self.coremlDecoder == None:
+        #        self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
+        #    return self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
-        elif x.shape[0] == 5 and x.shape[1] == 256:
-            if self.coremlDecoder256 == None:
-                self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head)
-            return self.coremlDecoder256.predictWith(x, xa, qk_mask)
+        #elif x.shape[0] == 5 and x.shape[1] == 256:
+        #    if self.coremlDecoder256 == None:
+        #        self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head)
+        #    return self.coremlDecoder256.predictWith(x, xa, qk_mask)
         ############################
 
         cross_qks = []
