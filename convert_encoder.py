@@ -26,7 +26,7 @@ encoder = ct.convert(
     compute_units=ct.ComputeUnit.ALL,
 )
 print("---")
-print(f"coreml conversion took {timer()-startT:.3f}")
+print(f"{modelSize} coreml conversion took {timer()-startT:.3f}")
 print("---")
 
 folder_path = f"coreml/{modelSize}"
@@ -52,11 +52,11 @@ diff = torch.abs(torch_output - coreml_output).detach()
 print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
 # note
-# convertion time on Macbook M1 Air 16GB
-# tiny:       10s
-# small:    1m10s
-# medium:   7m15s
-# large:
+# conversion time on Macbook M1 Air 16GB
+# tiny:       7s
+# small:    1m30s
+# medium:  ??? (I killed it after running 24mins)
+# large:   18mins (use 9GB memory)
 
 
 #pipeline = ct.PassPipeline()

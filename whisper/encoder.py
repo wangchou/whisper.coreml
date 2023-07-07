@@ -16,6 +16,11 @@ def sinusoids(length, channels, max_timescale=10000):
     scaled_time = torch.arange(length)[:, np.newaxis] * inv_timescales[np.newaxis, :]
     return torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], dim=1)
 
+# large encoder conversion time 48mins -> 18mins
+# magic from https://github.com/apple/coremltools/issues/1900
+def speedup_conversion_workaround(x: Tensor, n_state: int):
+    return torch.cat([x, torch.empty(1, 1, n_state)], dim=1).split(1500, dim=1)[0]
+
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
@@ -79,7 +84,9 @@ class ResidualAttentionBlock(nn.Module):
         self.n_state = n_state
 
     def forward(self, x: Tensor):
+        x = speedup_conversion_workaround(x, self.n_state)
         x = x + self.attn(self.attn_ln(x))
+        x = speedup_conversion_workaround(x, self.n_state)
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
@@ -121,5 +128,4 @@ class AudioEncoder(nn.Module):
             x = block(x)
         x = self.ln_post(x)
 
-        #print(x.shape)
         return x
