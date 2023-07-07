@@ -19,6 +19,7 @@ def sinusoids(length, channels, max_timescale=10000):
 # large encoder conversion time 48mins -> 18mins
 # magic from https://github.com/apple/coremltools/issues/1900
 def speedup_conversion_workaround(x: Tensor, n_state: int):
+    # (1, 1500, n_state) -> (1, 1501, n_state) -> (1, 1500, n_state)
     return torch.cat([x, torch.empty(1, 1, n_state)], dim=1).split(1500, dim=1)[0]
 
 class MultiHeadAttention(nn.Module):
@@ -27,6 +28,7 @@ class MultiHeadAttention(nn.Module):
         self.n_head = n_head
         self.dim_per_head = (n_state// n_head)
         self.qk_scale = (self.dim_per_head) ** -0.5
+        self.n_state = n_state
 
         self.query = nn.Linear(n_state, n_state)
         self.key = nn.Linear(n_state, n_state, bias=False)
@@ -35,8 +37,11 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, x: Tensor):
         q = self.query(x)
-        k = self.key(x)
+        k = self.key(x) * self.qk_scale # multiply on k speed up conversion than multiply on q
         v = self.value(x)
+
+        # only k don't transpose later, so add a divider here for ANECompilerService
+        k = speedup_conversion_workaround(k, self.n_state)
 
         #--- magic from https://github.com/apple/ml-ane-transformers/blob/da64000fa56cc85b0859bc17cb16a3d753b8304a/ane_transformers/huggingface/distilbert.py#L151
         # (1, 1500, 384) -> (1, 384, 1, 1500)
@@ -44,43 +49,35 @@ class MultiHeadAttention(nn.Module):
         k = k.unsqueeze(2)
         v = v.transpose(1, 2).unsqueeze(2)
 
+        # mh means multi-head
         mh_q = q.split(self.dim_per_head, dim=1)
         mh_k = k.split(self.dim_per_head, dim=3)
         mh_v = v.split(self.dim_per_head, dim=1)
 
-        attn_weights = [
-            torch.einsum('bchq,bkhc->bkhq', [qi, ki]) * self.qk_scale
-            for qi, ki in zip(mh_q, mh_k)
-        ]
-
-        attn_weights = [aw.softmax(dim=1) for aw in attn_weights]
-        attn = [
-            torch.einsum('bkhq,bchk->bchq', wi, vi)
-            for wi, vi in zip(attn_weights, mh_v)
-        ]
-
-        attn = torch.cat(attn, dim=1)
+        wv = None
+        for h in range(self.n_head):
+            w = torch.einsum('bchq,bkhc->bkhq', mh_q[h], mh_k[h]).softmax(dim=1)
+            mh_wv = torch.einsum('bkhq,bchk->bchq', w, mh_v[h])
+            wv = torch.cat([wv, mh_wv], dim=1) if wv is not None else mh_wv
 
         # (1, 384, 1, 1500) -> (1, 1500, 384)
-        attn = attn.squeeze(2).transpose(1,2)
+        wv = wv.squeeze(2).transpose(1,2)
         #--- end of magic
 
-        attn = self.out(attn)
-
-        return attn
+        return self.out(wv)
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
         super().__init__()
 
         self.attn = MultiHeadAttention(n_state, n_head)
-        self.attn_ln = nn.LayerNorm(n_state)
+        self.attn_ln = nn.LayerNorm(n_state, eps=1e-7)
 
         n_mlp = n_state * 4
         self.mlp = nn.Sequential(
             nn.Linear(n_state, n_mlp), nn.GELU(), nn.Linear(n_mlp, n_state)
         )
-        self.mlp_ln = nn.LayerNorm(n_state)
+        self.mlp_ln = nn.LayerNorm(n_state, eps=1e-7)
         self.n_state = n_state
 
     def forward(self, x: Tensor):
@@ -102,7 +99,7 @@ class AudioEncoder(nn.Module):
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [ResidualAttentionBlock(n_state, n_head) for _ in range(n_layer)]
         )
-        self.ln_post = nn.LayerNorm(n_state)
+        self.ln_post = nn.LayerNorm(n_state, eps=1e-7)
         self.coremlEncoder = None
         self.n_state = n_state
 
@@ -126,6 +123,8 @@ class AudioEncoder(nn.Module):
 
         for block in self.blocks:
             x = block(x)
+        #for i in range(4):
+        #    x = self.blocks[i](x)
         x = self.ln_post(x)
 
         return x
