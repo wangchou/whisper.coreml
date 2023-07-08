@@ -6,7 +6,7 @@ import os
 from timeit import default_timer as timer
 
 # model setting
-modelSize = "medium"
+modelSize = "small"
 model = whisper.load_model(modelSize).cpu()
 
 # trace model by torch.jit
@@ -18,7 +18,8 @@ traced_encoder = torch.jit.trace(encoder, melSegment)
 
 # convert to coreml model
 startT = timer()
-pipeline = ct.PassPipeline()
+pipeline = ct.PassPipeline.CLEANUP
+pipeline.insert_pass(11, "common::add_fp16_cast") # for ane
 pipeline.remove_passes({
     # this resolve complex graph caused by speedup_conversion_workaround func
     # in deep network
@@ -53,7 +54,6 @@ for i in range(1,4):
     )
     print(f"coreml prediction {i} took {timer()-startT:.3f}")
 
-
 print(f"coreml {modelSize} model output:", coreml_output)
 diff = torch.abs(torch_output - coreml_output).detach()
 print("diff avg,max:", torch.mean(diff), torch.max(diff))
@@ -61,6 +61,6 @@ print("diff avg,max:", torch.mean(diff), torch.max(diff))
 # note
 # conversion time on Macbook M1 Air 16GB
 # tiny:        7s
-# small:      51s (coremltools: 17s + ANECompilerService: 34s), predict: 111ms
-# medium:   4m03s (1m36s + 2m27s), 334ms
-# large:    9m51s (4m05s + 5m46s, use 9GB memory), 626ms
+# small:      45s (coremltools: 10s + ANECompilerService: 35s), predict: 112ms
+# medium:   3m25s (58s + 2m27s), 335ms
+# large:    8m00s (2m25s + 5m35s, use 9GB memory), 620ms

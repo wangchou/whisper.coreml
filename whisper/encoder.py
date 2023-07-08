@@ -123,8 +123,8 @@ class AudioEncoder(nn.Module):
 
         for block in self.blocks:
             x = block(x)
-        #for i in range(16):
-        #    x = self.blocks[i](x)
+        #for _ in range(4):
+        #    x = self.blocks[0](x)
         x = self.ln_post(x)
 
         return x
