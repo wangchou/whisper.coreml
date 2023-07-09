@@ -5,26 +5,23 @@ from coremltools.models.neural_network import quantization_utils
 import os
 from timeit import default_timer as timer
 
-# model setting
-modelSize = "small"
+modelSize = "medium"
 model = whisper.load_model(modelSize).cpu()
 
-# trace model by torch.jit
 encoder = model.encoder
 encoder.eval()
 
 melSegment = torch.ones((1, 80, 3000))
 traced_encoder = torch.jit.trace(encoder, melSegment)
 
-# convert to coreml model
-startT = timer()
 pipeline = ct.PassPipeline.CLEANUP
-pipeline.insert_pass(11, "common::add_fp16_cast") # for ane
+pipeline.insert_pass(11, "common::add_fp16_cast") # fp16 for ane
 pipeline.remove_passes({
-    # this resolve complex graph caused by speedup_conversion_workaround func
-    # in deep network
+    # fix complex graph caused by speedup_conversion_workaround
     "common::const_deduplication",
 })
+
+startT = timer()
 encoder = ct.convert(
     traced_encoder,
     convert_to="mlprogram",
@@ -42,12 +39,12 @@ if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 encoder.save(f"{folder_path}/CoremlEncoder.mlpackage")
 
-# test accuracy
 torch_output = traced_encoder.forward(melSegment)
 print("torch model output:", torch_output)
+
 melSegment = melSegment.cpu().detach().numpy()
 
-for i in range(1,4):
+for i in range(5):
     startT = timer()
     coreml_output = torch.from_numpy(
         list(encoder.predict({'melSegment': melSegment}).values())[0]

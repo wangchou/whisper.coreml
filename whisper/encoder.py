@@ -16,11 +16,10 @@ def sinusoids(length, channels, max_timescale=10000):
     scaled_time = torch.arange(length)[:, np.newaxis] * inv_timescales[np.newaxis, :]
     return torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], dim=1)
 
-# large encoder conversion time 48mins -> 18mins
-# magic from https://github.com/apple/coremltools/issues/1900
+# https://github.com/apple/coremltools/issues/1900
 def speedup_conversion_workaround(x: Tensor, n_state: int):
-    # (1, 1500, n_state) -> (1, 1502, n_state) -> (1, 1500, n_state)
-    return torch.cat([x, torch.empty(1, 2, n_state)], dim=1).split(1500, dim=1)[0]
+    # (1, 1500, 384) -> (1, 1501, 384) -> (1, 1500, 384)
+    return torch.cat([x, torch.empty(1, 1, n_state)], dim=1).split(1500, dim=1)[0]
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
@@ -37,32 +36,26 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, x: Tensor):
         q = self.query(x)
-        k = self.key(x) * self.qk_scale # multiply on k speed up conversion than multiply on q
+        k = self.key(x) * self.qk_scale
         v = self.value(x)
 
-        # only k don't transpose later, so add a divider here for ANECompilerService
-        k = speedup_conversion_workaround(k, self.n_state)
-
-        #--- magic from https://github.com/apple/ml-ane-transformers/blob/da64000fa56cc85b0859bc17cb16a3d753b8304a/ane_transformers/huggingface/distilbert.py#L151
         # (1, 1500, 384) -> (1, 384, 1, 1500)
         q = q.transpose(1, 2).unsqueeze(2)
         k = k.unsqueeze(2)
         v = v.transpose(1, 2).unsqueeze(2)
 
-        # mh means multi-head
+        # multi-head
         mh_q = q.split(self.dim_per_head, dim=1)
         mh_k = k.split(self.dim_per_head, dim=3)
         mh_v = v.split(self.dim_per_head, dim=1)
 
-        wv = None
+        mh_wv = []
         for h in range(self.n_head):
             w = torch.einsum('bchq,bkhc->bkhq', mh_q[h], mh_k[h]).softmax(dim=1)
-            mh_wv = torch.einsum('bkhq,bchk->bchq', w, mh_v[h])
-            wv = torch.cat([wv, mh_wv], dim=1) if wv is not None else mh_wv
+            mh_wv.append(torch.einsum('bkhq,bchk->bchq', w, mh_v[h]))
 
         # (1, 384, 1, 1500) -> (1, 1500, 384)
-        wv = wv.squeeze(2).transpose(1,2)
-        #--- end of magic
+        wv = torch.cat(mh_wv, dim=1).squeeze(2).transpose(1,2)
 
         return self.out(wv)
 
@@ -112,7 +105,7 @@ class AudioEncoder(nn.Module):
         #if self.coremlEncoder == None:
         #    self.coremlEncoder = CoremlEncoder(self.n_state)
         #return self.coremlEncoder.predictWith(x)
-        ###########################3
+        ############################
 
         x = F.gelu(self.conv1(x))
         x = F.gelu(self.conv2(x))
@@ -123,6 +116,8 @@ class AudioEncoder(nn.Module):
 
         for block in self.blocks:
             x = block(x)
+        #for i in range(4):
+        #    x = self.blocks[i](x)
         #for _ in range(4):
         #    x = self.blocks[0](x)
         x = self.ln_post(x)
