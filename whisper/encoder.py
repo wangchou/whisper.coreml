@@ -95,6 +95,8 @@ class AudioEncoder(nn.Module):
         self.ln_post = nn.LayerNorm(n_state, eps=1e-7)
         self.coremlEncoder = None
         self.n_state = n_state
+        self.n_layer = n_layer
+        self.from_block_idx = 0
 
     def forward(self, x: Tensor):
         """
@@ -107,19 +109,26 @@ class AudioEncoder(nn.Module):
         #return self.coremlEncoder.predictWith(x)
         ############################
 
-        x = F.gelu(self.conv1(x))
-        x = F.gelu(self.conv2(x))
-        x = x.permute(0, 2, 1)
+        self.from_block_idx = 0
+        for i in range(0, self.n_layer, 4):
+           self.from_block_idx = i
+           x = self.block4(x)
 
-        assert x.shape[1:] == self.positional_embedding.shape, "incorrect audio shape"
-        x = (x + self.positional_embedding)
+        return x
 
-        for block in self.blocks:
-            x = block(x)
-        #for i in range(4):
-        #    x = self.blocks[i](x)
-        #for _ in range(4):
-        #    x = self.blocks[0](x)
-        x = self.ln_post(x)
+    # divided sub-model for speed up ANECompilerService
+    def block4(self, x: Tensor):
+        if self.from_block_idx == 0:
+            x = F.gelu(self.conv1(x))
+            x = F.gelu(self.conv2(x))
+            x = x.permute(0, 2, 1)
+
+            x = (x + self.positional_embedding)
+
+        for i in range(self.from_block_idx, self.from_block_idx + 4):
+            x = self.blocks[i](x)
+
+        if self.from_block_idx + 4 == self.n_layer:
+            x = self.ln_post(x)
 
         return x
