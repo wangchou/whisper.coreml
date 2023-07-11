@@ -8,7 +8,7 @@ from timeit import default_timer as timer
 startT = timer()
 
 # model setting
-modelSize = "tiny"
+modelSize = "small"
 model = whisper.load_model(modelSize).cpu()
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
@@ -22,15 +22,16 @@ inType=np.float16
 # https://github.com/apple/coremltools/issues/1893
 outType=np.float16
 
-bs = 5 # beam_size
-
-# input data for trace
+bs = 1 # beam_size
 
 # max token len for first time = max_prefix_len(224) + sot_len(3)
 max_n_ctx = decoder.max_n_ctx_for_1st
 x = torch.ones((bs, max_n_ctx, n_state))
-xa = torch.ones((bs, 1500, n_state))
+xa = torch.ones((1, 1500, n_state))
 qk_mask = torch.zeros((max_n_ctx, max_n_ctx))
+
+#x_enum_shape = ct.EnumeratedShapes([(1, max_n_ctx, n_state),
+#                                    (bs, max_n_ctx, n_state)])
 
 traced_decoder = torch.jit.trace_module(decoder,
                                         {'forwardBlocks': (x, xa, qk_mask)})
@@ -62,12 +63,11 @@ folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 decoder.save(f"{folder_path}/CoremlDecoder256.mlpackage")
-print(f"saved {timer()-startT:.3f}")
 
 ## test accuracy
-torch_output = traced_decoder.forward(x, xa, qk_mask)[0]
-print("torch model output:", torch_output[:,0,:2], torch_output[:,max_n_ctx-1,n_state-1])
-print(f"torch predicted {timer()-startT:.3f}")
+#torch_output = traced_decoder.forward(x, xa, qk_mask)[0]
+#print("torch model output:", torch_output[:,0,:2], torch_output[:,max_n_ctx-1,n_state-1])
+#print(f"torch predicted {timer()-startT:.3f}")
 
 # coremltools has some issue on np.float16 output
 # it will took so long to convert fp16 to fp32 for python

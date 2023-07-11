@@ -14,101 +14,95 @@ from .transcribe import transcribe as transcribe_function
 from .coreml import CoremlDecoder, CoremlDecoder256
 from timeit import default_timer as timer
 
-class LayerNorm(nn.LayerNorm):
-    def forward(self, x: Tensor) -> Tensor:
-        return super().forward(x).type(x.dtype)
-
-
-class Linear(nn.Linear):
-    def forward(self, x: Tensor) -> Tensor:
-        return F.linear(
-            x,
-            self.weight.to(x.dtype),
-            None if self.bias is None else self.bias.to(x.dtype),
-        )
-
-class Conv1d(nn.Conv1d):
-    def _conv_forward(
-        self, x: Tensor, weight: Tensor, bias: Optional[Tensor]
-    ) -> Tensor:
-        return super()._conv_forward(
-            x, weight.to(x.dtype), None if bias is None else bias.to(x.dtype)
-        )
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
         self.n_head = n_head
-        self.query = Linear(n_state, n_state)
-        self.key = Linear(n_state, n_state, bias=False)
-        self.value = Linear(n_state, n_state)
-        self.out = Linear(n_state, n_state)
+        self.dim_per_head = n_state // n_head
+        self.query = nn.Linear(n_state, n_state)
+        self.key = nn.Linear(n_state, n_state, bias=False)
+        self.value = nn.Linear(n_state, n_state)
+        self.out = nn.Linear(n_state, n_state)
         self.qk_scale = (n_state // n_head) ** -0.5
 
     def forward(
         self,
         x: Tensor,
-        xa: Optional[Tensor] = None,
-        qk_mask: Optional[Tensor] = None,
+        qk_mask: Tensor,
         cache_k: Optional[Tensor] = None,
         cache_v: Optional[Tensor] = None,
     ):
-        q = self.query(x)
+        # x_shape
+        # decoder1:   (5,    1, 384)
+        # decoder256: (1,  256, 384), force bs=1 for speedup conversion
 
-        # new part of k, without previous cache
-        # zeros is for dummy output, because coreml don't accept None as return value
-        new_k = torch.zeros(1)
-        new_v = torch.zeros(1)
-        if cache_k is None or xa is None:
-            k = self.key(x if xa is None else xa.split(1)[0]) # cross_kv is the same for all beams
-            v = self.value(x if xa is None else xa.split(1)[0])
+        q = self.query(x) * self.qk_scale
+        k = self.key(x)
+        v = self.value(x)
 
-            new_k = k
-            new_v = v
-            # only for self masked attention
-            if qk_mask is not None and cache_k is not None:
-                k = torch.cat([cache_k, k], dim=1)
-                v = torch.cat([cache_v, v], dim=1)
-        else:
-            # for cross-attention
-            k = cache_k
-            v = cache_v
+        new_k = k
+        new_v = v
 
-        wv, qk = self.qkv_attention(q, k, v, qk_mask)
-        return self.out(wv), qk.detach(), new_k, new_v
+        if cache_k is not None:
+            k = torch.cat([cache_k, k], dim=1)
+            v = torch.cat([cache_v, v], dim=1)
 
-    def qkv_attention(
-        self, q: Tensor, k: Tensor, v: Tensor, qk_mask: Optional[Tensor] = None
-    ):
         q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
-        qk = q @ k * self.qk_scale
-        if qk_mask is not None:
-            qk = qk + qk_mask
-        qk = qk
+        qk = q @ k + qk_mask
 
-        w = F.softmax(qk, dim=-1).to(q.dtype)
-        return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
+        w = qk.softmax(dim=-1).to(q.dtype)
+        wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
+
+        return self.out(wv), new_k, new_v
+
+class CrossMultiHeadAttention(MultiHeadAttention):
+    def forward(
+        self,
+        x: Tensor,
+        xa: Tensor,
+        cache_k: Optional[Tensor] = None,
+        cache_v: Optional[Tensor] = None,
+    ):
+        q = self.query(x) * self.qk_scale
+        k = self.key(xa) if cache_k is None else cache_k
+        v = self.value(xa) if cache_v is None else cache_v
+
+        new_k = k
+        new_v = v
+
+        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
+        v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+
+        qk = q @ k
+
+        w = qk.softmax(dim=-1).to(q.dtype)
+        wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
+
+        return self.out(wv), qk, new_k, new_v
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
         super().__init__()
 
+        self.n_state = n_state
         self.attn = MultiHeadAttention(n_state, n_head)
-        self.attn_ln = LayerNorm(n_state)
+        self.attn_ln = nn.LayerNorm(n_state)
 
         self.cross_attn = (
-            MultiHeadAttention(n_state, n_head) if cross_attention else None
+            CrossMultiHeadAttention(n_state, n_head) if cross_attention else None
         )
-        self.cross_attn_ln = LayerNorm(n_state) if cross_attention else None
+        self.cross_attn_ln = nn.LayerNorm(n_state) if cross_attention else None
 
         n_mlp = n_state * 4
         self.mlp = nn.Sequential(
-            Linear(n_state, n_mlp), nn.GELU(), Linear(n_mlp, n_state)
+            nn.Linear(n_state, n_mlp), nn.GELU(), nn.Linear(n_mlp, n_state)
         )
-        self.mlp_ln = LayerNorm(n_state)
+        self.mlp_ln = nn.LayerNorm(n_state)
 
     def forward(
         self,
@@ -120,7 +114,7 @@ class ResidualAttentionBlock(nn.Module):
         ck: Optional[Tensor] = None,
         cv: Optional[Tensor] = None,
     ):
-        x_out, masked_qk, new_mk, new_mv = self.attn(self.attn_ln(x), qk_mask=qk_mask, cache_k=mk, cache_v=mv)
+        x_out, new_mk, new_mv = self.attn(self.attn_ln(x), qk_mask=qk_mask, cache_k=mk, cache_v=mv)
         x = x + x_out
         cross_qk = new_ck = new_cv = None
         if self.cross_attn:
@@ -144,7 +138,7 @@ class TextDecoder(nn.Module):
                 for _ in range(n_layer)
             ]
         )
-        self.ln = LayerNorm(n_state)
+        self.ln = nn.LayerNorm(n_state)
         self.n_vocab = n_vocab
         self.n_state = n_state
         self.n_layer = n_layer
@@ -224,16 +218,24 @@ class TextDecoder(nn.Module):
         cross_qks = []
         new_masked_kv_caches = []
         new_cross_kv_caches = []
+
+        if masked_kv_caches is not None:
+            mkv_caches = masked_kv_caches.split(1)
+        if cross_kv_caches is not None:
+            ckv_caches = cross_kv_caches.split(1)
+
         for layer_idx, block in enumerate(self.blocks):
+            #if layer_idx > 0:
+            #    break
             # mk = masked_key_cache, ck = cross_key_cache
             mk = mv = ck = cv = None
             if masked_kv_caches is not None:
-                mk = masked_kv_caches[layer_idx*2]
-                mv = masked_kv_caches[layer_idx*2 + 1]
+                mk = mkv_caches[layer_idx*2].squeeze(0)
+                mv = mkv_caches[layer_idx*2 + 1].squeeze(0)
 
             if cross_kv_caches is not None:
-                ck = cross_kv_caches[layer_idx*2]
-                cv = cross_kv_caches[layer_idx*2 + 1]
+                ck = ckv_caches[layer_idx*2].squeeze(0)
+                cv = ckv_caches[layer_idx*2 + 1].squeeze(0)
 
             x, cross_qk, new_mk, new_mv, new_ck, new_cv = block(x, xa, qk_mask, mk, mv, ck, cv)
 

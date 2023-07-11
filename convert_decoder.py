@@ -22,7 +22,7 @@ bs = 5 # beam_size
 
 # input data for trace
 x = torch.ones((bs, 1, n_state))
-xa = torch.ones((bs, 1500, n_state))
+xa = torch.ones((1, 1500, n_state))
 qk_mask = torch.zeros((1,449))
 masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state))
 cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state))
