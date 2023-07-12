@@ -21,12 +21,19 @@ MLMultiArray *outCKV;
 uint16* out_ckv_fp16;
 uint16* out_qks_fp16;
 
+bool isPredicted = false;
+bool isModelLoaded = false;
+
 #if __cplusplus
 extern "C" {
 #endif
 
 const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head) {
+    CFTimeInterval startT = CACurrentMediaTime();
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
+    if (!isModelLoaded) {
+        NSLog(@"loading %@", modelPathStr);
+    }
     NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
 
     NSError *error = nil;
@@ -54,6 +61,10 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     outQKs = getArray1(out_qks_fp16, 1, MLMultiArrayDataTypeFloat16);
     out_ckv_fp16 = (uint16 *) malloc(sizeof(uint16));
     outCKV = getArray1(out_ckv_fp16, 1, MLMultiArrayDataTypeFloat16);
+    if (!isModelLoaded) {
+        NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
+    }
+    isModelLoaded = true;
     return model;
 }
 
@@ -121,17 +132,19 @@ void predictWith(
 }
 
 void closeModel(const void* model) {
-   CFRelease(model);
-   CFRelease(inX.pixelBuffer);
-   CFRelease(inXa.pixelBuffer);
-   CFRelease(inQk_mask.pixelBuffer);
-   CFRelease(inCkv.pixelBuffer);
+    CFRelease(model);
+    CFRelease(inX.pixelBuffer);
+    CFRelease(inXa.pixelBuffer);
+    CFRelease(inQk_mask.pixelBuffer);
+    CFRelease(inCkv.pixelBuffer);
 
-   CFRelease(outX.pixelBuffer);
-   CFRelease(outMKV.pixelBuffer);
+    CFRelease(outX.pixelBuffer);
+    CFRelease(outMKV.pixelBuffer);
 
-   free(out_qks_fp16);
-   free(out_ckv_fp16);
+    free(out_qks_fp16);
+    free(out_ckv_fp16);
+    isModelLoaded = false;
+    isPredicted = false;
 }
 
 #if __cplusplus

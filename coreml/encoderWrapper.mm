@@ -1,6 +1,7 @@
 #import <CoreML/CoreML.h>
 #include <malloc/_malloc.h>
 #import <Accelerate/Accelerate.h>
+#import <QuartzCore/QuartzCore.h>
 #import "encoderWrapper.h"
 #import "CoremlEncoder0.h"
 #import "CoremlEncoder4.h"
@@ -13,6 +14,8 @@ MLMultiArray *arrayMelSegment;
 MLPredictionOptions* options;
 const void* models[8]; // max = 32 layer / 4
 int model_count;
+bool isPredicted = false;
+bool isModelLoaded = false;
 
 #if __cplusplus
 extern "C" {
@@ -24,11 +27,16 @@ void loadModel(const char* modelFolderPath, int n_layer, int n_state) {
         model_count++;
     } // base model with layer 6
 
-    NSLog(@"loadModel, model_count=%d", model_count);
+    if (!isModelLoaded) {
+        NSLog(@"load encoder, submodel_count=%d", model_count);
+    }
 
     for(int i=0; i<model_count; i++) {
+        CFTimeInterval startT = CACurrentMediaTime();
         NSString *modelPathStr = [NSString stringWithFormat:@"%s/CoremlEncoder%d.mlmodelc", modelFolderPath, i*4]; // 4 blocks as sub model unit
-        NSLog(@"loading %@", modelPathStr);
+        if (!isModelLoaded) {
+            NSLog(@"loading %@", modelPathStr);
+        }
         NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
         NSError *error = nil;
         switch(i) {
@@ -42,8 +50,13 @@ void loadModel(const char* modelFolderPath, int n_layer, int n_state) {
                 models[i] = CFBridgingRetain([[CoremlEncoder8 alloc] initWithContentsOfURL:modelURL error:&error]);
                 break;
         }
+
         if(error) {
             NSLog(@"Error load model from %@, %@", modelPathStr, error);
+        }
+
+        if (!isModelLoaded) {
+            NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
         }
     }
 
@@ -56,9 +69,8 @@ void loadModel(const char* modelFolderPath, int n_layer, int n_state) {
     };
 
     [options setOutputBackings:outputBackings];
+    isModelLoaded = true;
 }
-
-bool isPredicted = false;
 
 void predictWith(float* melSegment, float* encoderOutput) {
     int model_idx = 0;
@@ -113,6 +125,8 @@ void closeModel() {
     //Release(options);
     CFRelease(arrayMelSegment.pixelBuffer);
     CFRelease(arrayX.pixelBuffer);
+    isModelLoaded = false;
+    isPredicted = false;
 }
 
 #if __cplusplus

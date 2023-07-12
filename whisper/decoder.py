@@ -178,24 +178,20 @@ class TextDecoder(nn.Module):
             # predict beam by beam for reuse decoder256 coreml model for bs=1 and bs=5
             x_bs = x.split(1)
             for bs_idx in range(len(x_bs)):
-                _x, _cross_qks, _new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x_bs[bs_idx],
+                # cross_qk only used for word level timestamp, its bs=1
+                # cross_kv_caches is the same in all beams
+                _x, cross_qks, _new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x_bs[bs_idx],
                                                                                                 xa,
                                                                                                 qk_mask,
                                                                                                 masked_kv_caches,
                                                                                                 cross_kv_caches,
                                                                                                 isNewCKV=(bs_idx==0))
-                _cross_qks = _cross_qks.unsqueeze(1)
                 if bs_idx == 0:
                     x = _x
-                    cross_qks = _cross_qks
                     new_masked_kv_caches = _new_masked_kv_caches
                 else:
                     x = torch.cat([x, _x], dim=0)
-                    cross_qks = torch.cat([cross_qks, _cross_qks], dim=1)
                     new_masked_kv_caches = torch.cat([new_masked_kv_caches, _new_masked_kv_caches], dim=1)
-
-            cross_qks = cross_qks.view(-1, *cross_qks.shape[2:])
-            # predict beam by beam ended
 
             x = x[:,:n_ctx, :]
             cross_qks = cross_qks[:, :, :n_ctx, :]
