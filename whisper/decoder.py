@@ -168,30 +168,51 @@ class TextDecoder(nn.Module):
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
 
-        if text_offset == 0:
+        if text_offset == 0: # decoder256
             max_n_ctx = self.max_n_ctx_for_1st
             qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf
             ## fix shape by appending zeros to max_n_ctx
             x = torch.cat([x, torch.zeros(n_batch, max_n_ctx-n_ctx, self.n_state)], dim=1)
-            x, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x,
-                                                                                         xa,
-                                                                                         qk_mask,
-                                                                                         masked_kv_caches,
-                                                                                         cross_kv_caches,
-                                                                                         isNewCKV)
+
+            # predict beam by beam for reuse decoder256 coreml model for bs=1 and bs=5
+            x_bs = x.split(1)
+            for bs_idx in range(len(x_bs)):
+                _x, _cross_qks, _new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x_bs[bs_idx],
+                                                                                                xa,
+                                                                                                qk_mask,
+                                                                                                masked_kv_caches,
+                                                                                                cross_kv_caches,
+                                                                                                isNewCKV=(bs_idx==0))
+                _cross_qks = _cross_qks.unsqueeze(1)
+                if bs_idx == 0:
+                    x = _x
+                    cross_qks = _cross_qks
+                    new_masked_kv_caches = _new_masked_kv_caches
+                else:
+                    x = torch.cat([x, _x], dim=0)
+                    cross_qks = torch.cat([cross_qks, _cross_qks], dim=1)
+                    new_masked_kv_caches = torch.cat([new_masked_kv_caches, _new_masked_kv_caches], dim=1)
+
+            cross_qks = cross_qks.view(-1, *cross_qks.shape[2:])
+            # predict beam by beam ended
+
             x = x[:,:n_ctx, :]
             cross_qks = cross_qks[:, :, :n_ctx, :]
             logits = (
                 x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
             ).float()
-        else:
+        else: # decoder1
             qk_mask = torch.cat([torch.zeros((1,text_offset)),
                                  torch.ones((1, 448-text_offset)) * -np.inf,
                                  torch.FloatTensor([[0]])],
-                                dim=1)
-            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
-
+                                 dim=1)
+            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x,
+                                                                                              xa,
+                                                                                              qk_mask,
+                                                                                              masked_kv_caches,
+                                                                                              cross_kv_caches,
+                                                                                              isNewCKV)
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
