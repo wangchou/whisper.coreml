@@ -6,7 +6,7 @@ from timeit import default_timer as timer
 import numpy as np
 import os
 
-modelSize = "large"
+modelSize = "base"
 model = whisper.load_model(modelSize).cpu()
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
@@ -20,7 +20,7 @@ def convertBlock4(encoder, from_block_idx):
     global total_conversion_time
     global total_prediction_time
     print("")
-    print(f"- {modelSize} model Block {from_block_idx}..<{from_block_idx+4} -")
+    print(f"- {modelSize} model Block {from_block_idx}..<{min(from_block_idx+4, n_layer)} -")
 
     #
     # Torch Trace
@@ -41,7 +41,8 @@ def convertBlock4(encoder, from_block_idx):
     # coremltools convert
     #
     pipeline = ct.PassPipeline.CLEANUP
-    pipeline.insert_pass(11, "common::add_fp16_cast") # fp16 for ane
+    pipeline.insert_pass(-1, "common::add_fp16_cast") # fp16 for ane
+    #pipeline.set_options("common::add_fp16_cast", {"skip_ops_by_type": "layer_norm,softmax"})
     pipeline.remove_passes({
         # fix complex graph caused by speedup_conversion_workaround
         "common::const_deduplication",

@@ -125,10 +125,10 @@ class AudioEncoder(nn.Module):
 
             x = (x + self.positional_embedding)
 
-        for i in range(self.from_block_idx, self.from_block_idx + 4):
+        for i in range(self.from_block_idx, min(self.from_block_idx + 4, self.n_layer)):
             x = self.blocks[i](x)
 
-        if self.from_block_idx + 4 == self.n_layer:
+        if self.from_block_idx + 4 >= self.n_layer:
             x = self.ln_post(x)
 
         return x
