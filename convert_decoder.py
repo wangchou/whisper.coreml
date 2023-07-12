@@ -5,7 +5,7 @@ import os
 import numpy as np
 
 # model setting
-modelSize = "tiny"
+modelSize = "small"
 model = whisper.load_model(modelSize).cpu()
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]

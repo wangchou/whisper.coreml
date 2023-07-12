@@ -98,16 +98,16 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
 
     int max_n_ctx = 256;
     // input arrays
-    inX = getPixelBufferArray3(5, max_n_ctx, n_state);
-    inXa = getPixelBufferArray3(5, 1500, n_state);
+    inX = getPixelBufferArray3(1, max_n_ctx, n_state);
+    inXa = getPixelBufferArray3(1, 1500, n_state);
     inQk_mask = getPixelBufferArray2(max_n_ctx, max_n_ctx);
 
     // output arrays
     int f32_multiple = 2;
-    outX = getPixelBufferArray3(5, max_n_ctx, n_state);
+    outX = getPixelBufferArray3(1, max_n_ctx, n_state);
     // 1500 -> 1504 for being multiple of 32
-    outQKs = getPixelBufferArray4(n_layer*5, n_head, max_n_ctx, 1504);
-    outMKV = getPixelBufferArray4(n_layer*2, 5, max_n_ctx, n_state);
+    outQKs = getPixelBufferArray4(n_layer, n_head, max_n_ctx, 1504);
+    outMKV = getPixelBufferArray4(n_layer*2, 1, max_n_ctx, n_state);
     outCKV = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
     return model;
 }
@@ -133,8 +133,8 @@ bool isPredicted = false;
 
 void predictWith(
     const void* model,
-    float* x, // (bs, 256, n_state)
-    float* xa, // (bs, 1500, n_state)
+    float* x, // (1, 256, n_state)
+    float* xa, // (1, 1500, n_state)
     float* qk_mask, // (256, 256)
     int n_layer,
     int n_state,
@@ -147,8 +147,8 @@ void predictWith(
     //CFTimeInterval startT = CACurrentMediaTime();
 
     // input arrays
-    float32ToFloat16(x, (uint16*)inX.dataPointer, 5 * 256 * n_state);
-    float32ToFloat16(xa, (uint16*)inXa.dataPointer, 5 * 1500 * n_state);
+    float32ToFloat16(x, (uint16*)inX.dataPointer, 1 * 256 * n_state);
+    float32ToFloat16(xa, (uint16*)inXa.dataPointer, 1 * 1500 * n_state);
     float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 256 * 256);
     //NSLog(@"1 %.3f", CACurrentMediaTime() - startT);
 
@@ -189,7 +189,7 @@ void predictWith(
     // 1500 is not multiple of 32 => ane appends 4 of zeors to 1504
     uint16* fromPtr = (uint16*)outQKs.dataPointer;
     float* toPtr = out_cross_qks;
-    for(int i=0; i<20 * 6 * 256; i++) {
+    for(int i=0; i<n_layer * n_head * 256; i++) {
         float16ToFloat32(fromPtr, toPtr, 1500);
         fromPtr += 1504;
         toPtr += 1500;

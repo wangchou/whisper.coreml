@@ -73,8 +73,8 @@ class CoremlDecoder256():
             c_string = bytes(f'./coreml/{modelSize}/CoremlDecoder256.mlmodelc', 'ascii')
             self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head)
 
-            bs = 5 # beam_size
-            n_head = 6 # tiny=6, base=8, small=12, medium=16, large=20
+            bs = 1 # beam_size
+            n_head = self.n_head # tiny=6, base=8, small=12, medium=16, large=20
             n_state = self.n_state
             n_layer = self.n_layer
             max_n_ctx = 256
@@ -156,7 +156,7 @@ class CoremlDecoder():
             self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head)
 
             bs = 5 # beam_size
-            n_head = 6 # tiny=6, base=8, small=12, medium=16, large=20
+            n_head = self.n_head # tiny=6, base=8, small=12, medium=16, large=20
             n_state = self.n_state
             n_layer = self.n_layer
             dtype1=torch.float32

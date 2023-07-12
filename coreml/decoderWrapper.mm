@@ -102,7 +102,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
 
     // input arrays
     inX = getPixelBufferArray3(5, 1, n_state);
-    inXa = getPixelBufferArray3(5, 1500, n_state);
+    inXa = getPixelBufferArray3(1, 1500, n_state);
     inQk_mask = getPixelBufferArray2(1, 449);
     inMkv = getPixelBufferArray4(n_layer*2, 5, 448, n_state);
     inCkv = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
@@ -122,7 +122,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
 void predictWith(
     const void* model,
     float* x, // (bs, 1, n_state)
-    float* xa, // (bs, 1500, n_state)
+    float* xa, // (1, 1500, n_state)
     float* qk_mask, // (1, 449)
     float* masked_kv_caches, // (n_layer * 2, bs, 448, n_state)
     float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
@@ -140,7 +140,7 @@ void predictWith(
     // input arrays
     float32ToFloat16(x, (uint16*)inX.dataPointer, 5 * n_state);
     if (isNewCKV) {
-        float32ToFloat16(xa, (uint16*)inXa.dataPointer, 5 * 1500 * n_state);
+        float32ToFloat16(xa, (uint16*)inXa.dataPointer, 1 * 1500 * n_state);
     }
     float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 449);
     float32ToFloat16(masked_kv_caches, (uint16*)inMkv.dataPointer, n_layer * 2 * 5 * 448 * n_state);

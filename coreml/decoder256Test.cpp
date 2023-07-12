@@ -13,20 +13,21 @@ float* getOnes(int count) {
 
 int main() {
     // tiny model
-    int n_layer = 4;
-    int n_state = 384;
-    int bs = 5;
-    int n_head = 6; // tiny=6, base=8, small=12, medium=16, large=20
+    //int n_layer = 4;
+    //int n_state = 384;
+    //int bs = 1;
+    //int n_head = 6; // tiny=6, base=8, small=12, medium=16, large=20
+    //int text_offset = 10; // only for test
+    //int max_n_ctx = 256;
+    //const void* decoder = loadModel("./tiny/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head);
+    // small model
+    int n_layer = 12;
+    int n_state = 768;
+    int bs = 1;
+    int n_head = 12; // tiny=6, base=8, small=12, medium=16, large=20
     int text_offset = 10; // only for test
     int max_n_ctx = 256;
-    const void* decoder = loadModel("./tiny/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head);
-    // small model
-    //int n_layer = 12;
-    //int n_state = 768;
-    //int bs = 5;
-    //int n_head = 12; // tiny=6, base=8, small=12, medium=16, large=20
-    //int text_offset = 10; // only for test
-    //const void* decoder = loadModel("./small/CoremlDecoder256.mlmodelc", n_layer, n_state);
+    const void* decoder = loadModel("./small/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head);
 
     float* x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
     float* xa = getOnes(bs * 1500 * n_state); // (bs, 1500, n_state)

@@ -12,7 +12,6 @@ modelSize = "small"
 model = whisper.load_model(modelSize).cpu()
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
-n_head = 6
 
 decoder = model.decoder
 decoder.eval()
@@ -29,9 +28,6 @@ max_n_ctx = decoder.max_n_ctx_for_1st
 x = torch.ones((bs, max_n_ctx, n_state))
 xa = torch.ones((1, 1500, n_state))
 qk_mask = torch.zeros((max_n_ctx, max_n_ctx))
-
-#x_enum_shape = ct.EnumeratedShapes([(1, max_n_ctx, n_state),
-#                                    (bs, max_n_ctx, n_state)])
 
 traced_decoder = torch.jit.trace_module(decoder,
                                         {'forwardBlocks': (x, xa, qk_mask)})
