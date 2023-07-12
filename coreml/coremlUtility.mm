@@ -19,6 +19,23 @@ void float16ToFloat32(const uint16* fp16, float* fp32, int count) {
     }
 }
 
+void unlock(MLMultiArray* ma) {
+    CVReturn cvRetval = 0;
+    cvRetval = CVPixelBufferUnlockBaseAddress(ma.pixelBuffer, 0);
+
+    if (cvRetval != kCVReturnSuccess) {
+        NSLog(@"something wrong on unlocking PixelBuffer %d", cvRetval);
+    }
+}
+
+void showStrides(MLMultiArray* ma) {
+    NSLog(@" ");
+    NSLog(@"count %ld %f", ma.count, ma.count / [ma.strides[0] floatValue]);
+    for(int i=0; i<ma.strides.count; i++) {
+        NSLog(@"stride %d %@", i, ma.strides[i]);
+    }
+}
+
 CVPixelBufferRef getPixelBuffer(int dim1, int dim2) {
     CVPixelBufferRef pixelBuffer = NULL;
     CVReturn cvRetval = 0;
@@ -31,7 +48,7 @@ CVPixelBufferRef getPixelBuffer(int dim1, int dim2) {
             &pixelBuffer);
 
     if (cvRetval != kCVReturnSuccess) {
-        NSLog(@"something wrong on creating PixelBuffer %d", cvRetval);
+        NSLog(@"something wrong on creating PixelBuffer %d, dim1=%d, dim2=%d", cvRetval, dim1, dim2);
     }
 
     return pixelBuffer;

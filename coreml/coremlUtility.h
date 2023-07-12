@@ -9,6 +9,8 @@ extern "C" {
 
 void float32ToFloat16(const float* fp32, uint16* fp16, int count);
 void float16ToFloat32(const uint16* fp16, float* fp32, int count);
+void unlock(MLMultiArray* ma);
+void showStrides(MLMultiArray* ma);
 CVPixelBufferRef getPixelBuffer(int dim1, int dim2);
 MLMultiArray* getPixelBufferArray2(int dim1, int dim2);
 MLMultiArray* getPixelBufferArray3(int dim1, int dim2, int dim3);

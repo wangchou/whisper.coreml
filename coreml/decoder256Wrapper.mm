@@ -50,23 +50,6 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     return model;
 }
 
-void unlock(MLMultiArray* ma) {
-    CVReturn cvRetval = 0;
-    cvRetval = CVPixelBufferUnlockBaseAddress(ma.pixelBuffer, 0);
-
-    if (cvRetval != kCVReturnSuccess) {
-        NSLog(@"something wrong on unlocking PixelBuffer %d", cvRetval);
-    }
-}
-
-void showStrides(MLMultiArray* ma) {
-    NSLog(@" ");
-    NSLog(@"count %ld %f", ma.count, ma.count / [ma.strides[0] floatValue]);
-    for(int i=0; i<ma.strides.count; i++) {
-        NSLog(@"stride %d %@", i, ma.strides[i]);
-    }
-}
-
 bool isPredicted = false;
 
 void predictWith(

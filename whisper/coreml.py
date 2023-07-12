@@ -6,7 +6,8 @@ import ctypes
 import torch
 
 class CoremlEncoder():
-    def __init__(self, n_state: int):
+    def __init__(self, n_layer: int, n_state: int):
+        self.n_layer = n_layer
         self.n_state = n_state
         self.encoderObj = None
         self.mlmodel_handle = None
@@ -15,15 +16,15 @@ class CoremlEncoder():
         if self.mlmodel_handle == None:
             modelSize = self.getModelSize(self.n_state)
             self.encoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/encoderWrapper.so')
-            self.encoderObj.loadModel.argtypes = [c_char_p]
-            self.encoderObj.loadModel.restype = c_void_p
-            c_string = bytes(f'./coreml/{modelSize}/CoremlEncoder.mlmodelc', 'ascii')
-            self.mlmodel_handle = self.encoderObj.loadModel(c_string)
+            self.encoderObj.loadModel.argtypes = [c_char_p, c_int, c_int]
+            self.encoderObj.loadModel.restype = None
+            c_string = bytes(f'./coreml/{modelSize}', 'ascii')
+            self.encoderObj.loadModel(c_string, self.n_layer, self.n_state)
 
     def predictWith(self, melSegment):
         if self.mlmodel_handle == None:
             self.loadModel()
-        self.encoderObj.predictWith.argtypes = [c_void_p, POINTER(c_float), POINTER(c_float)]
+        self.encoderObj.predictWith.argtypes = [POINTER(c_float), POINTER(c_float)]
         self.encoderObj.predictWith.restypes = None
 
         # force memory continuous, this is very important
@@ -33,14 +34,14 @@ class CoremlEncoder():
         # alloc output buffer
         output_floats = torch.ones((1, 1500, self.n_state), dtype=torch.float32).contiguous()
         output_floats_ptr = ctypes.cast(output_floats.data_ptr(), POINTER(c_float))
-        self.encoderObj.predictWith(self.mlmodel_handle, melSegmentDataPtr, output_floats_ptr)
+        self.encoderObj.predictWith(melSegmentDataPtr, output_floats_ptr)
         return output_floats
 
     def closeModel(self):
         if self.mlmodel_handle != None:
-            self.encoderObj.closeModel.argtypes = [c_void_p]
+            self.encoderObj.closeModel.argtypes = None
             self.encoderObj.closeModel.restypes = None
-            self.encoderObj.closeModel(self.mlmodel_handle)
+            self.encoderObj.closeModel()
 
     def getModelSize(self, n_state: int):
         if n_state == 384:

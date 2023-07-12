@@ -1,6 +1,7 @@
 #include "decoderWrapper.h"
 #include <stdlib.h>
 #include <iostream>
+#include <chrono>
 using namespace std;
 
 float* getOnes(int count) {
@@ -39,11 +40,14 @@ int main() {
     float* out_new_cross_kv_caches  = getOnes( 1);// (1)
 
     for(int i=0; i<5; i++) {
+        chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(decoder, // model
                 x, xa, qk_mask, masked_kv_caches, cross_kv_caches, // input
                 n_layer, n_state, n_head, i == 0, // context parameter
                 out_x, out_cross_qks, out_new_masked_kv_caches, out_new_cross_kv_caches // outputs
                 );
+        chrono::steady_clock::time_point end = chrono::steady_clock::now();
+        cout << "decoder1 " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << endl;
     }
 
     // it should match pytorch output:
