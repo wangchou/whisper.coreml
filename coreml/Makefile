@@ -2,9 +2,10 @@ small: small/encoderWrapper.so small/decoderTest small/decoder256Test
 
 small/encoderWrapper.so: encoderWrapper.h encoderWrapper.mm
 	cp encoderWrapper* ${@D}
+	cp coremlUtility* ${@D}
 	xcrun coremlc compile ${@D}/CoremlEncoder.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlEncoder.mlpackage ${@D}
-	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/encoderWrapper.mm ${@D}/CoremlEncoder.m -o ${@D}/encoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/encoderWrapper.mm ${@D}/CoremlEncoder.m ${@D}/coremlUtility.mm -o ${@D}/encoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
 
 small/decoderTest: decoderTest.cpp small/decoderWrapper.so
 	cp decoderTest.cpp ${@D}
@@ -12,9 +13,10 @@ small/decoderTest: decoderTest.cpp small/decoderWrapper.so
 
 small/decoderWrapper.so: decoderWrapper.h decoderWrapper.mm
 	cp decoderWrapper* ${@D}
+	cp coremlUtility* ${@D}
 	xcrun coremlc compile ${@D}/CoremlDecoder.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlDecoder.mlpackage ${@D}
-	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoderWrapper.mm ${@D}/CoremlDecoder.m -o ${@D}/decoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoderWrapper.mm ${@D}/CoremlDecoder.m ${@D}/coremlUtility.mm -o ${@D}/decoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 small/decoder256Test: decoder256Test.cpp small/decoder256Wrapper.so
 	cp decoder256Test.cpp ${@D}
@@ -22,9 +24,10 @@ small/decoder256Test: decoder256Test.cpp small/decoder256Wrapper.so
 
 small/decoder256Wrapper.so: decoder256Wrapper.h decoder256Wrapper.mm
 	cp decoder256Wrapper* ${@D}
+	cp coremlUtility* ${@D}
 	xcrun coremlc compile ${@D}/CoremlDecoder256.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlDecoder256.mlpackage ${@D}
-	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoder256Wrapper.mm ${@D}/CoremlDecoder256.m -o ${@D}/decoder256Wrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoder256Wrapper.mm ${@D}/CoremlDecoder256.m ${@D}/coremlUtility.mm -o ${@D}/decoder256Wrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 clean:
 	rm -f small/decoderWrapper.so
