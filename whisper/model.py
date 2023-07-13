@@ -30,7 +30,7 @@ class ModelDimensions:
     n_text_layer: int
 
 class Whisper(nn.Module):
-    def __init__(self, dims: ModelDimensions):
+    def __init__(self, dims: ModelDimensions, use_coreml: bool):
         super().__init__()
         self.dims = dims
         self.encoder = AudioEncoder(
@@ -39,6 +39,7 @@ class Whisper(nn.Module):
             self.dims.n_audio_state,
             self.dims.n_audio_head,
             self.dims.n_audio_layer,
+            use_coreml,
         )
         self.decoder = TextDecoder(
             self.dims.n_vocab,
@@ -46,6 +47,7 @@ class Whisper(nn.Module):
             self.dims.n_text_state,
             self.dims.n_text_head,
             self.dims.n_text_layer,
+            use_coreml,
         )
         # use the last half layers for alignment by default; see `set_alignment_heads()` below
         all_heads = torch.zeros(

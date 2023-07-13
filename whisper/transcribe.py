@@ -417,6 +417,7 @@ def cli():
     parser.add_argument("--max_line_width", type=optional_int, default=None, help="(requires --word_timestamps True) the maximum number of characters in a line before breaking the line")
     parser.add_argument("--max_line_count", type=optional_int, default=None, help="(requires --word_timestamps True) the maximum number of lines in a segment")
     parser.add_argument("--threads", type=optional_int, default=0, help="number of threads used by torch for CPU inference; supercedes MKL_NUM_THREADS/OMP_NUM_THREADS")
+    parser.add_argument("--use_coreml", type=str2bool, default=False, help="use coreml backend")
     # fmt: on
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
@@ -442,9 +443,11 @@ def cli():
     if (threads := args.pop("threads")) > 0:
         torch.set_num_threads(threads)
 
+    use_coreml = args.pop("use_coreml")
+
     from . import load_model
 
-    model = load_model(model_name, device=device, download_root=model_dir)
+    model = load_model(model_name, device=device, download_root=model_dir, use_coreml=use_coreml)
 
     writer = get_writer(output_format, output_dir)
     word_options = ["highlight_words", "max_line_count", "max_line_width"]

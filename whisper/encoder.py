@@ -82,7 +82,7 @@ class ResidualAttentionBlock(nn.Module):
 
 class AudioEncoder(nn.Module):
     def __init__(
-        self, n_mels: int, n_ctx: int, n_state: int, n_head: int, n_layer: int
+            self, n_mels: int, n_ctx: int, n_state: int, n_head: int, n_layer: int, use_coreml: bool
     ):
         super().__init__()
         self.conv1 = nn.Conv1d(n_mels, n_state, kernel_size=3, padding=1)
@@ -97,6 +97,7 @@ class AudioEncoder(nn.Module):
         self.n_state = n_state
         self.n_layer = n_layer
         self.from_block_idx = 0
+        self.use_coreml = use_coreml
 
     def forward(self, x: Tensor):
         """
@@ -104,8 +105,7 @@ class AudioEncoder(nn.Module):
             the mel spectrogram of the audio
         """
         ############################
-        use_coreml = True
-        if use_coreml:
+        if self.use_coreml:
             if self.coremlEncoder == None:
                 self.coremlEncoder = CoremlEncoder(self.n_layer, self.n_state)
             return self.coremlEncoder.predictWith(x)

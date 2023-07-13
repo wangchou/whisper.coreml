@@ -125,7 +125,7 @@ class ResidualAttentionBlock(nn.Module):
 
 class TextDecoder(nn.Module):
     def __init__(
-        self, n_vocab: int, n_ctx: int, n_state: int, n_head: int, n_layer: int
+            self, n_vocab: int, n_ctx: int, n_state: int, n_head: int, n_layer: int, use_coreml: bool
     ):
         super().__init__()
 
@@ -147,6 +147,7 @@ class TextDecoder(nn.Module):
         self.register_buffer("mask", mask, persistent=False)
         self.coremlDecoder = None
         self.coremlDecoder256 = None
+        self.use_coreml = use_coreml
 
         # max token len for first time = max_prefix_len(224) + sot_len(3)
         # not sure why... decoder227 is slower than decoder256
@@ -216,13 +217,12 @@ class TextDecoder(nn.Module):
                       qk_mask: Optional[Tensor] = None,
                       masked_kv_caches: Optional[Tensor] = None,
                       cross_kv_caches: Optional[Tensor] = None,
-                      isNewCKV: Optional[Tensor] = None # only for coremlDecoder1
+                      isNewCKV: Optional[Tensor] = None, # only for coremlDecoder1
                       ):
 
         ############################
         # Coreml Decoder part
-        use_coreml = True
-        if use_coreml:
+        if self.use_coreml:
             if masked_kv_caches is not None and x.shape[1] == 1:
                 if self.coremlDecoder == None:
                     self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
