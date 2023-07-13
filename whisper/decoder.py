@@ -279,10 +279,6 @@ class TextDecoder(nn.Module):
             x = x.view(*x.shape[:2], self.n_state)
             logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
 
-            # avoid return big unused output from coremlDecoder1
-            new_cross_kv_caches = torch.zeros(1)
-            cross_qks = torch.zeros(1)
-
             return logits, new_masked_kv_caches
         else: # decoder256 and decoder call from add timestamp
             return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches

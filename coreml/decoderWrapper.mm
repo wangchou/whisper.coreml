@@ -49,9 +49,8 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     inCkv = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
 
     // output arrays
-    int f32_multiple = 2;
-    outX = getPixelBufferArray3(5, 1, n_vocab * f32_multiple);
-    outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state * f32_multiple);
+    outX = getPixelBufferArray3(5, 1, n_vocab);
+    outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state);
 
     if (!isModelLoaded) {
         NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
@@ -70,6 +69,7 @@ void predictWith(
     int n_layer,
     int n_state,
     int n_head,
+    int n_vocab,
     bool isNewCKV,
     float* out_x,
     float* out_new_masked_kv_caches
@@ -103,17 +103,30 @@ void predictWith(
     NSError *error = nil;
     CoremlDecoderOutput *output;
 
-    output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input error:&error];
+    output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input options:options error:&error];
     //NSLog(@"prediction %.3f", CACurrentMediaTime() - startT);
-    //showStrides(output.out_x);
-    //NSLog(@"%ld", output.out_x.count);
-
-    cblas_scopy((int)   output.out_x.count,
-                (float*)output.out_x.dataPointer, 1, out_x, 1);
-    cblas_scopy((int)   output.out_new_masked_kv_caches.count,
-                (float*)output.out_new_masked_kv_caches.dataPointer, 1, out_new_masked_kv_caches, 1);
     if(error) {
         NSLog(@"%@", error);
+    }
+    //showStrides(outX);
+    //showStrides(outMKV);
+    //NSLog(@"%ld", output.out_x.count);
+
+    // ane fp16 output is aligned with 64 bytes or 32 element of fp16
+    // 51865 is not multiple of 32 => ane appends zeors to 51872
+    uint16* fromPtr = (uint16*)outX.dataPointer;
+    float* toPtr = out_x;
+    for(int bs=0; bs<5; bs++) {
+        float16ToFloat32(fromPtr, toPtr, n_vocab);
+        fromPtr += [outX.strides[0] intValue];
+        toPtr += n_vocab;
+    }
+
+    float16ToFloat32((uint16*)outMKV.dataPointer, out_new_masked_kv_caches, outMKV.count);
+    if (!isPredicted) {
+        unlock(outX);
+        unlock(outMKV);
+        isPredicted = true;
     }
 }
 

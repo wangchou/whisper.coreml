@@ -14,6 +14,7 @@ void predictWith(
     int n_layer,
     int n_state,
     int n_head, // tiny=6, base=8, small=12, medium=16, large=20
+    int n_vocab,
     bool isNewCKV,
     float* out_x, // (bs, 1, n_state)
     float* out_new_masked_kv_caches // (n_layer * 2, bs, 1, n_state)

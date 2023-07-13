@@ -160,7 +160,7 @@ class CoremlDecoder():
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
                                                 POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float),
-                                                c_int, c_int, c_int, c_bool,
+                                                c_int, c_int, c_int, c_int, c_bool,
                                                 POINTER(c_float), POINTER(c_float)]
         self.decoderObj.predictWith.restypes = None
 
@@ -180,7 +180,7 @@ class CoremlDecoder():
         startT = timer()
         self.decoderObj.predictWith(self.mlmodel_handle,
                                     xPtr, xaPtr, qkMaskPtr, mkvPtr, ckvPtr,
-                                    self.n_layer, self.n_state, self.n_head, isNewCKV,
+                                    self.n_layer, self.n_state, self.n_head, self.n_vocab, isNewCKV,
                                     self.outXPtr, self.outMKVPtr)
         #print(f"\tpredictWit took {timer() - startT:.3f}")
 
