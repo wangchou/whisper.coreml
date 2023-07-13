@@ -3,10 +3,8 @@
 #import <Accelerate/Accelerate.h>
 #import <QuartzCore/QuartzCore.h>
 #import "encoderWrapper.h"
-#import "CoremlEncoder0.h"
-#import "CoremlEncoder4.h"
-#import "CoremlEncoder8.h"
 #import "coremlUtility.h"
+#import "CoremlEncoder0.h"
 #include <stdlib.h>
 
 MLMultiArray *arrayX;
@@ -39,17 +37,7 @@ void loadModel(const char* modelFolderPath, int n_layer, int n_state) {
         }
         NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
         NSError *error = nil;
-        switch(i) {
-            case 0:
-                models[i] = CFBridgingRetain([[CoremlEncoder0 alloc] initWithContentsOfURL:modelURL error:&error]);
-                break;
-            case 1:
-                models[i] = CFBridgingRetain([[CoremlEncoder4 alloc] initWithContentsOfURL:modelURL error:&error]);
-                break;
-            case 2:
-                models[i] = CFBridgingRetain([[CoremlEncoder8 alloc] initWithContentsOfURL:modelURL error:&error]);
-                break;
-        }
+        models[i] = CFBridgingRetain([MLModel modelWithContentsOfURL:modelURL error:&error]);
 
         if(error) {
             NSLog(@"Error load model from %@, %@", modelPathStr, error);
@@ -93,18 +81,11 @@ void predictWith(float* melSegment, float* encoderOutput) {
         }
 
         NSError *error = nil;
-        if(model_idx==0) {
-            CoremlEncoder0Input* input = [[CoremlEncoder0Input alloc] initWithX:arrayMelSegment];
-            CoremlEncoder0Output *modelOutput0 = (CoremlEncoder0Output*)[(__bridge id)models[model_idx] predictionFromFeatures:input options:options error:&error];
-        }
-        if(model_idx==1) {
-            CoremlEncoder4Input* input = [[CoremlEncoder4Input alloc] initWithX:arrayX];
-            CoremlEncoder4Output *modelOutput4 = (CoremlEncoder4Output*)[(__bridge id)models[model_idx] predictionFromFeatures:input options:options error:&error];
-        }
-        if(model_idx==2) {
-            CoremlEncoder8Input* input = [[CoremlEncoder8Input alloc] initWithX:arrayX];
-            CoremlEncoder8Output *modelOutput8 = (CoremlEncoder8Output*)[(__bridge id)models[model_idx] predictionFromFeatures:input options:options error:&error];
-        }
+
+        // CoremlEncoder0Input is just a wrapper for providing interface of access
+        // data by name, so it is the same for all sub models
+        CoremlEncoder0Input* input = [[CoremlEncoder0Input alloc] initWithX:inputArray];
+        [(__bridge id)models[model_idx] predictionFromFeatures:input options:options error:&error];
         if(error) {
             NSLog(@"Error on prediction %@", error);
         }

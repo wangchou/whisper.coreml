@@ -7,13 +7,11 @@ small/encoderTest: encoderTest.cpp small/encoderWrapper.so
 small/encoderWrapper.so: encoderWrapper.h encoderWrapper.mm
 	cp encoderWrapper* ${@D}
 	cp coremlUtility* ${@D}
+	xcrun coremlc generate  ${@D}/CoremlEncoder0.mlpackage ${@D}
 	xcrun coremlc compile  ${@D}/CoremlEncoder0.mlpackage ${@D}
-	xcrun coremlc generate ${@D}/CoremlEncoder0.mlpackage ${@D}
 	xcrun coremlc compile  ${@D}/CoremlEncoder4.mlpackage ${@D}
-	xcrun coremlc generate ${@D}/CoremlEncoder4.mlpackage ${@D}
 	xcrun coremlc compile  ${@D}/CoremlEncoder8.mlpackage ${@D}
-	xcrun coremlc generate ${@D}/CoremlEncoder8.mlpackage ${@D}
-	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/encoderWrapper.mm ${@D}/CoremlEncoder0.m ${@D}/CoremlEncoder4.m ${@D}/CoremlEncoder8.m ${@D}/coremlUtility.mm -o ${@D}/encoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/encoderWrapper.mm ${@D}/coremlUtility.mm ${@D}/CoremlEncoder0.m -o ${@D}/encoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
 
 small/decoderTest: decoderTest.cpp small/decoderWrapper.so
 	cp decoderTest.cpp ${@D}
