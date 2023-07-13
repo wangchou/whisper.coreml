@@ -14,3 +14,8 @@ coreml/base
 coreml/small
 coreml/medium
 coreml/large
+coreml/tiny.en
+coreml/base.en
+coreml/small.en
+coreml/medium.en
+coreml/large

@@ -125,7 +125,7 @@ class ResidualAttentionBlock(nn.Module):
 
 class TextDecoder(nn.Module):
     def __init__(
-            self, n_vocab: int, n_ctx: int, n_state: int, n_head: int, n_layer: int, use_coreml: bool
+            self, n_vocab: int, n_ctx: int, n_state: int, n_head: int, n_layer: int, use_coreml: bool, modelName
     ):
         super().__init__()
 
@@ -148,6 +148,7 @@ class TextDecoder(nn.Module):
         self.coremlDecoder = None
         self.coremlDecoder256 = None
         self.use_coreml = use_coreml
+        self.modelName = modelName
 
         # max token len for first time = max_prefix_len(224) + sot_len(3)
         # not sure why... decoder227 is slower than decoder256
@@ -166,6 +167,14 @@ class TextDecoder(nn.Module):
         """
         offset = text_offset
         n_batch, n_ctx = x.shape
+
+        # fix something wierd on xxxxx.en model
+        # it return 51864 as index... index out of range for token_embedding
+        # note:
+        #   1. coreml encoder + coreml decoder still generate garbage
+        #   2. coreml encoder + cpu fp32 decoder generate correct output
+        if self.n_vocab == 51864:
+            x = x.clamp(max=self.n_vocab-1)
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
 
@@ -225,12 +234,12 @@ class TextDecoder(nn.Module):
         if self.use_coreml:
             if masked_kv_caches is not None and x.shape[1] == 1:
                 if self.coremlDecoder == None:
-                    self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head)
+                    self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.modelName)
                 return self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
             else:
                 if self.coremlDecoder256 == None:
-                    self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head)
+                    self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head, self.modelName)
                 return self.coremlDecoder256.predictWith(x, xa, qk_mask)
         ############################
 

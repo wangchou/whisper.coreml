@@ -7,8 +7,9 @@ import numpy as np
 from timeit import default_timer as timer
 
 # model setting
-modelSize = sys.argv[1] if len(sys.argv) > 1 else "small"
-model = whisper.load_model(modelSize).cpu()
+modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
+model = whisper.load_model(modelName).cpu()
+modelSize = modelName.split(".")[0]
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
 
@@ -56,9 +57,9 @@ decoder = ct.convert(
     compute_units=ct.ComputeUnit.ALL,
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
 )
-print(f"{modelSize} decoder1 conversion time: {timer()-startT:.3f}s")
+print(f"{modelName} decoder1 conversion time: {timer()-startT:.3f}s")
 
-folder_path = f"coreml/{modelSize}"
+folder_path = f"coreml/{modelName}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
 decoder.save(f"{folder_path}/CoremlDecoder.mlpackage")
@@ -74,7 +75,7 @@ coreml_output = torch.from_numpy(
                          'masked_kv_caches': masked_kv_caches,
                          'cross_kv_caches':cross_kv_caches})['out_x']
 )
-print(f"coreml {modelSize} model output:", coreml_output[:,0,:2])
+print(f"coreml {modelName} model output:", coreml_output[:,0,:2])
 diff = torch.abs(torch_output - coreml_output).detach()
 print("diff avg,max:", torch.mean(diff), torch.max(diff))
 print("")

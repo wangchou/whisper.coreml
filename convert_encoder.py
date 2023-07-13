@@ -7,8 +7,9 @@ import numpy as np
 import os
 import sys
 
-modelSize = sys.argv[1] if len(sys.argv) > 1 else "small"
-model = whisper.load_model(modelSize).cpu()
+modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
+model = whisper.load_model(modelName).cpu()
+modelSize = modelName.split(".")[0]
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
 
@@ -21,7 +22,7 @@ def convertBlock4(encoder, from_block_idx):
     global total_conversion_time
     global total_prediction_time
     print("")
-    print(f"- {modelSize} encoder Block {from_block_idx}..<{min(from_block_idx+4, n_layer)} -")
+    print(f"- {modelName} encoder Block {from_block_idx}..<{min(from_block_idx+4, n_layer)} -")
 
     #
     # Torch Trace
@@ -66,7 +67,7 @@ def convertBlock4(encoder, from_block_idx):
     print(f"conversion time: {conversion_time:.3f}s")
 
 
-    folder_path = f"coreml/{modelSize}"
+    folder_path = f"coreml/{modelName}"
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
     encoder.save(f"{folder_path}/CoremlEncoder{from_block_idx}.mlpackage")
@@ -90,7 +91,7 @@ def convertBlock4(encoder, from_block_idx):
     total_prediction_time += prediction_time
     print(f"prediction time: {prediction_time:.3f}s")
 
-    #print(f"coreml {modelSize} block{i} model output:", coreml_output)
+    #print(f"coreml {modelName} block{i} model output:", coreml_output)
     diff = torch.abs(torch_output - coreml_output).detach()
     print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
@@ -98,8 +99,8 @@ for block_idx in range(0, n_layer, 4):
     convertBlock4(encoder, block_idx)
 
 print("---------------------")
-print(f"{modelSize} encoder total conversion time: {total_conversion_time:.3f}s")
-print(f"{modelSize} encoder total prediction_time time: {total_prediction_time:.3f}s")
+print(f"{modelName} encoder total conversion time: {total_conversion_time:.3f}s")
+print(f"{modelName} encoder total prediction_time time: {total_prediction_time:.3f}s")
 print("")
 # note
 # conversion time on Macbook M1 Air 16GB

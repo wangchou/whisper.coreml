@@ -6,19 +6,19 @@ import ctypes
 import torch
 
 class CoremlEncoder():
-    def __init__(self, n_layer: int, n_state: int):
+    def __init__(self, n_layer: int, n_state: int, modelName):
         self.n_layer = n_layer
         self.n_state = n_state
+        self.modelName = modelName
         self.encoderObj = None
         self.mlmodel_handle = None
 
     def loadModel(self):
         if self.mlmodel_handle == None:
-            modelSize = self.getModelSize(self.n_state)
-            self.encoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/encoderWrapper.so')
+            self.encoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/encoderWrapper.so')
             self.encoderObj.loadModel.argtypes = [c_char_p, c_int, c_int]
             self.encoderObj.loadModel.restype = None
-            c_string = bytes(f'./coreml/{modelSize}', 'ascii')
+            c_string = bytes(f'./coreml/{self.modelName}', 'ascii')
             self.encoderObj.loadModel(c_string, self.n_layer, self.n_state)
 
     def predictWith(self, melSegment):
@@ -58,20 +58,20 @@ class CoremlEncoder():
             return "unknown_model_size"
 ########################################
 class CoremlDecoder256():
-    def __init__(self, n_layer: int, n_state: int, n_head: int):
+    def __init__(self, n_layer: int, n_state: int, n_head: int, modelName):
         self.n_layer = n_layer
         self.n_state = n_state
         self.n_head = n_head
+        self.modelName = modelName
         self.decoderObj = None
         self.mlmodel_handle = None
 
     def loadModel(self):
         if self.mlmodel_handle == None:
-            modelSize = self.getModelSize(self.n_state)
-            self.decoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/decoder256Wrapper.so')
+            self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoder256Wrapper.so')
             self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int]
             self.decoderObj.loadModel.restype = c_void_p
-            c_string = bytes(f'./coreml/{modelSize}/CoremlDecoder256.mlmodelc', 'ascii')
+            c_string = bytes(f'./coreml/{self.modelName}/CoremlDecoder256.mlmodelc', 'ascii')
             self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head)
 
             bs = 1 # beam_size
@@ -124,36 +124,23 @@ class CoremlDecoder256():
             self.decoderObj.closeModel.restypes = None
             self.decoderObj.closeModel(self.mlmodel_handle)
 
-    def getModelSize(self, n_state: int):
-        if n_state == 384:
-            return "tiny"
-        elif n_state == 512:
-            return "base"
-        elif n_state == 768:
-            return "small"
-        elif n_state == 1024:
-            return "medium"
-        elif n_state == 1280:
-            return "large"
-        else:
-            return "unknown_model_size"
 ########################################
 class CoremlDecoder():
-    def __init__(self, n_layer: int, n_state: int, n_head: int):
+    def __init__(self, n_layer: int, n_state: int, n_head: int, modelName):
         self.n_layer = n_layer
         self.n_state = n_state
         self.n_head = n_head
+        self.modelName = modelName
         self.decoderObj = None
         self.mlmodel_handle = None
 
     def loadModel(self):
         if self.mlmodel_handle == None:
-            modelSize = self.getModelSize(self.n_state)
-            self.decoderObj = cdll.LoadLibrary(f'./coreml/{modelSize}/decoderWrapper.so')
+            self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoderWrapper.so')
             self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int]
             self.decoderObj.loadModel.restype = c_void_p
             self.decoderObj.loadModel.restype = c_void_p
-            c_string = bytes(f'./coreml/{modelSize}/CoremlDecoder.mlmodelc', 'ascii')
+            c_string = bytes(f'./coreml/{self.modelName}/CoremlDecoder.mlmodelc', 'ascii')
             self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head)
 
             bs = 5 # beam_size
@@ -208,17 +195,4 @@ class CoremlDecoder():
             self.decoderObj.closeModel.restypes = None
             self.decoderObj.closeModel(self.mlmodel_handle)
 
-    def getModelSize(self, n_state: int):
-        if n_state == 384:
-            return "tiny"
-        elif n_state == 512:
-            return "base"
-        elif n_state == 768:
-            return "small"
-        elif n_state == 1024:
-            return "medium"
-        elif n_state == 1280:
-            return "large"
-        else:
-            return "unknown_model_size"
 ########################################
