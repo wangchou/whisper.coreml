@@ -104,9 +104,11 @@ class AudioEncoder(nn.Module):
             the mel spectrogram of the audio
         """
         ############################
-        if self.coremlEncoder == None:
-            self.coremlEncoder = CoremlEncoder(self.n_layer, self.n_state)
-        return self.coremlEncoder.predictWith(x)
+        use_coreml = True
+        if use_coreml:
+            if self.coremlEncoder == None:
+                self.coremlEncoder = CoremlEncoder(self.n_layer, self.n_state)
+            return self.coremlEncoder.predictWith(x)
         ############################
 
         self.from_block_idx = 0

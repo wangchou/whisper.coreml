@@ -5,8 +5,9 @@ from coremltools.models.neural_network import quantization_utils
 from timeit import default_timer as timer
 import numpy as np
 import os
+import sys
 
-modelSize = "small"
+modelSize = sys.argv[1] if len(sys.argv) > 1 else "small"
 model = whisper.load_model(modelSize).cpu()
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
@@ -97,8 +98,8 @@ for block_idx in range(0, n_layer, 4):
     convertBlock4(encoder, block_idx)
 
 print("---------------------")
-print(f"{modelSize} total conversion time: {total_conversion_time:.3f}s")
-print(f"{modelSize} total prediction_time time: {total_prediction_time:.3f}s")
+print(f"{modelSize} encoder total conversion time: {total_conversion_time:.3f}s")
+print(f"{modelSize} encoder total prediction_time time: {total_prediction_time:.3f}s")
 
 # note
 # conversion time on Macbook M1 Air 16GB
