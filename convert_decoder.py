@@ -44,9 +44,7 @@ input5 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=inType)
 inputs = [input1, input2, input3, input4, input5]
 
 outputs = [ct.TensorType("out_x", dtype=outType),
-           ct.TensorType("out_cross_qks", dtype=outType),
-           ct.TensorType("out_new_masked_kv_caches", dtype=outType),
-           ct.TensorType("out_new_cross_kv_caches", dtype=outType)]
+           ct.TensorType("out_new_masked_kv_caches", dtype=outType)]
 
 startT = timer()
 decoder = ct.convert(

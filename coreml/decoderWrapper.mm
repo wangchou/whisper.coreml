@@ -15,11 +15,7 @@ MLMultiArray *inCkv;
 
 // output arrays
 MLMultiArray *outX;
-MLMultiArray *outQKs;
 MLMultiArray *outMKV;
-MLMultiArray *outCKV;
-uint16* out_ckv_fp16;
-uint16* out_qks_fp16;
 
 bool isPredicted = false;
 bool isModelLoaded = false;
@@ -28,7 +24,7 @@ bool isModelLoaded = false;
 extern "C" {
 #endif
 
-const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head) {
+const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab) {
     CFTimeInterval startT = CACurrentMediaTime();
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isModelLoaded) {
@@ -54,13 +50,9 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
 
     // output arrays
     int f32_multiple = 2;
-    outX = getPixelBufferArray3(5, 1, 51865 * f32_multiple);
+    outX = getPixelBufferArray3(5, 1, n_vocab * f32_multiple);
     outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state * f32_multiple);
 
-    out_qks_fp16 = (uint16 *) malloc(sizeof(uint16));
-    outQKs = getArray1(out_qks_fp16, 1, MLMultiArrayDataTypeFloat16);
-    out_ckv_fp16 = (uint16 *) malloc(sizeof(uint16));
-    outCKV = getArray1(out_ckv_fp16, 1, MLMultiArrayDataTypeFloat16);
     if (!isModelLoaded) {
         NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
     }
@@ -80,9 +72,7 @@ void predictWith(
     int n_head,
     bool isNewCKV,
     float* out_x,
-    float* out_cross_qks,
-    float* out_new_masked_kv_caches,
-    float* out_new_cross_kv_caches
+    float* out_new_masked_kv_caches
 ) {
     //CFTimeInterval startT = CACurrentMediaTime();
 
@@ -106,9 +96,7 @@ void predictWith(
 
     NSDictionary *outputBackings = @{
         @"out_x":outX,
-        @"out_cross_qks":outQKs,
         @"out_new_masked_kv_caches":outMKV,
-        @"out_new_cross_kv_caches":outCKV
     };
     [options setOutputBackings:outputBackings];
 
@@ -117,15 +105,13 @@ void predictWith(
 
     output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input error:&error];
     //NSLog(@"prediction %.3f", CACurrentMediaTime() - startT);
+    //showStrides(output.out_x);
+    //NSLog(@"%ld", output.out_x.count);
 
     cblas_scopy((int)   output.out_x.count,
                 (float*)output.out_x.dataPointer, 1, out_x, 1);
-    cblas_scopy((int)   output.out_cross_qks.count,
-                (float*)output.out_cross_qks.dataPointer, 1, out_cross_qks, 1);
     cblas_scopy((int)   output.out_new_masked_kv_caches.count,
                 (float*)output.out_new_masked_kv_caches.dataPointer, 1, out_new_masked_kv_caches, 1);
-    cblas_scopy((int)   output.out_new_cross_kv_caches.count,
-                (float*)output.out_new_cross_kv_caches.dataPointer, 1, out_new_cross_kv_caches, 1);
     if(error) {
         NSLog(@"%@", error);
     }
@@ -141,8 +127,6 @@ void closeModel(const void* model) {
     CFRelease(outX.pixelBuffer);
     CFRelease(outMKV.pixelBuffer);
 
-    free(out_qks_fp16);
-    free(out_ckv_fp16);
     isModelLoaded = false;
     isPredicted = false;
 }

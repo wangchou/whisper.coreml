@@ -168,13 +168,6 @@ class TextDecoder(nn.Module):
         offset = text_offset
         n_batch, n_ctx = x.shape
 
-        # fix something wierd on xxxxx.en model
-        # it return 51864 as index... index out of range for token_embedding
-        # note:
-        #   1. coreml encoder + coreml decoder still generate garbage
-        #   2. coreml encoder + cpu fp32 decoder generate correct output
-        if self.n_vocab == 51864:
-            x = x.clamp(max=self.n_vocab-1)
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
         x = x.to(xa.dtype)
 
@@ -213,12 +206,14 @@ class TextDecoder(nn.Module):
                                  torch.ones((1, 448-text_offset)) * -np.inf,
                                  torch.FloatTensor([[0]])],
                                  dim=1)
-            logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x,
-                                                                                              xa,
-                                                                                              qk_mask,
-                                                                                              masked_kv_caches,
-                                                                                              cross_kv_caches,
-                                                                                              isNewCKV)
+            logits, new_masked_kv_caches = self.forwardBlocks(x,
+                                                              xa,
+                                                              qk_mask,
+                                                              masked_kv_caches,
+                                                              cross_kv_caches,
+                                                              isNewCKV)
+            cross_qks = None
+            new_cross_kv_caches = None
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
@@ -234,7 +229,7 @@ class TextDecoder(nn.Module):
         if self.use_coreml:
             if masked_kv_caches is not None and x.shape[1] == 1:
                 if self.coremlDecoder == None:
-                    self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.modelName)
+                    self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.n_vocab, self.modelName)
                 return self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
             else:
@@ -288,6 +283,6 @@ class TextDecoder(nn.Module):
             new_cross_kv_caches = torch.zeros(1)
             cross_qks = torch.zeros(1)
 
-            return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+            return logits, new_masked_kv_caches
         else: # decoder256 and decoder call from add timestamp
             return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
