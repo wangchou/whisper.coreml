@@ -55,6 +55,7 @@ decoder = ct.convert(
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
 )
 print(f"{modelSize} decoder256 conversion time: {timer()-startT:.3f}s")
+print("")
 
 folder_path = f"coreml/{modelSize}"
 if not os.path.exists(folder_path):

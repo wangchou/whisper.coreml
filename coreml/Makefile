@@ -14,9 +14,6 @@ $(MODEL)/encoderWrapper.so: encoderWrapper.h encoderWrapper.mm
 	for mlmodel in $(shell find $(MODEL) -name 'CoremlEncoder*.mlpackage') ; do \
 		xcrun coremlc compile  $$mlmodel ${@D} || exit 1; \
     done
-	xcrun coremlc compile  ${@D}/CoremlEncoder0.mlpackage ${@D}
-	xcrun coremlc compile  ${@D}/CoremlEncoder4.mlpackage ${@D}
-	xcrun coremlc compile  ${@D}/CoremlEncoder8.mlpackage ${@D}
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/encoderWrapper.mm ${@D}/coremlUtility.mm ${@D}/CoremlEncoder0.m -o ${@D}/encoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
 
 $(MODEL)/decoderTest: decoderTest.cpp $(MODEL)/decoderWrapper.so
@@ -42,14 +39,10 @@ $(MODEL)/decoder256Wrapper.so: decoder256Wrapper.h decoder256Wrapper.mm
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoder256Wrapper.mm ${@D}/CoremlDecoder256.m ${@D}/coremlUtility.mm -o ${@D}/decoder256Wrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 clean:
-	rm -f $(MODEL)/decoderWrapper.so
-	rm -rf $(MODEL)/CoremlDecoder256.mlmodelc
-	rm -f $(MODEL)/CoremlDecoder256.h
-	rm -f $(MODEL)/CoremlDecoder256.m
-	rm -f $(MODEL)/decoderTest
-	rm -rf $(MODEL)/CoremlDecoder.mlmodelc
-	rm -f $(MODEL)/CoremlDecoder.h
-	rm -f $(MODEL)/CoremlDecoder.m
-	rm -f $(MODEL)/decoder256Wrapper.so
-	rm -f $(MODEL)/decoder256Test
-	rm -f $(MODEL)/encoderWrapper.so
+	rm -rf $(MODEL)/*.mlmodelc
+	rm -f $(MODEL)/*.h
+	rm -f $(MODEL)/*.m
+	rm -f $(MODEL)/*.mm
+	rm -f $(MODEL)/*.cpp
+	rm -f $(MODEL)/*Test
+	rm -f $(MODEL)/*.so

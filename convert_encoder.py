@@ -21,7 +21,7 @@ def convertBlock4(encoder, from_block_idx):
     global total_conversion_time
     global total_prediction_time
     print("")
-    print(f"- {modelSize} model Block {from_block_idx}..<{min(from_block_idx+4, n_layer)} -")
+    print(f"- {modelSize} encoder Block {from_block_idx}..<{min(from_block_idx+4, n_layer)} -")
 
     #
     # Torch Trace
@@ -100,7 +100,7 @@ for block_idx in range(0, n_layer, 4):
 print("---------------------")
 print(f"{modelSize} encoder total conversion time: {total_conversion_time:.3f}s")
 print(f"{modelSize} encoder total prediction_time time: {total_prediction_time:.3f}s")
-
+print("")
 # note
 # conversion time on Macbook M1 Air 16GB
 # tiny:        7s

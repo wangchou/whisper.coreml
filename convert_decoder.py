@@ -77,4 +77,4 @@ coreml_output = torch.from_numpy(
 print(f"coreml {modelSize} model output:", coreml_output[:,0,:2])
 diff = torch.abs(torch_output - coreml_output).detach()
 print("diff avg,max:", torch.mean(diff), torch.max(diff))
-
+print("")
