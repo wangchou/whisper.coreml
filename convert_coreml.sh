@@ -18,4 +18,4 @@ model=$1 make
 
 echo ""
 echo "----"
-echo "usage: python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=5 --best_of=5 --use_coreml=True"
+echo "usage: python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=5 --best_of=5 --word_timestamps=True --use_coreml=True"

@@ -60,6 +60,8 @@ int main() {
 
     // it should match pytorch output:
     // tensor([ 0.9057, -1.3382], grad_fn=<SliceBackward0>) tensor(7.6636, grad_fn=<SelectBackward0>)
-    cout << " " << out_x[0] << " " << out_x[1];// << " " << out_x[bs * 51865 - 1];
+    for(int bs=0; bs<5; bs++) {
+        cout << " " << out_x[bs*n_vocab] << " " << out_x[bs*n_vocab+1] << " " << out_x[(bs+1) * n_vocab - 1] << endl;
+    }
     closeModel(decoder);
 }

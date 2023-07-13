@@ -165,7 +165,7 @@ class PyTorchInference(Inference):
                                                                  self.model.masked_kv_caches,
                                                                  self.model.cross_kv_caches)
         n_ctx = tokens.shape[1]
-        if n_ctx == 1:
+        if n_ctx == 1 and self.model.text_offset > 0:
             self.model.isNewCKV = False # for coreml only
 
         if self.model.text_offset == 0:

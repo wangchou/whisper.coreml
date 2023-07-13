@@ -14,7 +14,6 @@ from .transcribe import transcribe as transcribe_function
 from .coreml import CoremlDecoder, CoremlDecoder256
 from timeit import default_timer as timer
 
-
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
@@ -180,15 +179,16 @@ class TextDecoder(nn.Module):
 
             # predict beam by beam for reuse decoder256 coreml model for bs=1 and bs=5
             x_bs = x.split(1)
+
             for bs_idx in range(len(x_bs)):
                 # cross_qk only used for word level timestamp, its bs=1
                 # cross_kv_caches is the same in all beams
+                # TODO: this calculate redundant cross_kv_caches 5 times,
+                #       should move that calculating to encoder or independent sub-model
                 _x, cross_qks, _new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x_bs[bs_idx],
-                                                                                                xa,
-                                                                                                qk_mask,
-                                                                                                masked_kv_caches,
-                                                                                                cross_kv_caches,
-                                                                                                isNewCKV=(bs_idx==0))
+                                                                                               xa,
+                                                                                               qk_mask,
+                                                                                               masked_kv_caches)
                 if bs_idx == 0:
                     x = _x
                     new_masked_kv_caches = _new_masked_kv_caches
@@ -196,8 +196,8 @@ class TextDecoder(nn.Module):
                     x = torch.cat([x, _x], dim=0)
                     new_masked_kv_caches = torch.cat([new_masked_kv_caches, _new_masked_kv_caches], dim=1)
 
-            x = x[:,:n_ctx, :]
-            cross_qks = cross_qks[:, :, :n_ctx, :]
+            x = x.split(n_ctx, dim=1)[0]
+            cross_qks = cross_qks.split(n_ctx, dim=2)[0]
             logits = (
                 x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
             ).float()
