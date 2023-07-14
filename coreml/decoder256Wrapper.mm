@@ -35,7 +35,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     NSError *error = nil;
     MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
     // MLComputeUnitsCPUOnly, MLComputeUnitsCPUAndGPU, MLComputeUnitsAll,  MLComputeUnitsCPUAndNeuralEngine
-    config.computeUnits = 3;
+    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
     const void* model = CFBridgingRetain([[CoremlDecoder256 alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
     if(error) {
       NSLog(@"Error load model from %s, %@", modelPath, error);
@@ -47,11 +47,8 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     inXa = getPixelBufferArray3(1, 1500, n_state);
     inQk_mask = getPixelBufferArray2(max_n_ctx, max_n_ctx);
 
-    // output arrays
-    int f32_multiple = 2;
     outX = getPixelBufferArray3(1, max_n_ctx, n_state);
-    // 1500 -> 1504 for being multiple of 32
-    outQKs = getPixelBufferArray4(n_layer, n_head, max_n_ctx, 1504);
+    outQKs = getPixelBufferArray4(n_layer, n_head, max_n_ctx, 1500);
     outMKV = getPixelBufferArray4(n_layer*2, 1, max_n_ctx, n_state);
     outCKV = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
     if (!isModelLoaded) {
@@ -84,7 +81,6 @@ void predictWith(
 
     CoremlDecoder256Input* input = [[CoremlDecoder256Input alloc] initWithX:inX xa:inXa qk_mask:inQk_mask];
 
-    // output arrays
     MLPredictionOptions* options = [MLPredictionOptions alloc];
 
     NSDictionary *outputBackings = @{
@@ -97,36 +93,34 @@ void predictWith(
 
     NSError *error = nil;
     CoremlDecoder256Output *output;
-    //NSLog(@"2 %.3f", CACurrentMediaTime() - startT);
 
     output = (CoremlDecoder256Output*)[(__bridge id)model predictionFromFeatures:input options:options error:&error];
-    //output = (CoremlDecoder256Output*)[(__bridge id)model predictionFromFeatures:input error:&error];
-    //NSLog(@"prediction %.3f", CACurrentMediaTime() - startT);
+
     if(error) {
         NSLog(@"%@", error);
     }
 
-    //NSLog(@"3 %.3f", CACurrentMediaTime() - startT);
     float16ToFloat32((uint16*)outX.dataPointer, out_x, outX.count);
 
 
-    //int dim1 = [outQKs.strides[0] intValue] / [outQKs.strides[1] intValue];
-    //int dim2 = [outQKs.strides[1] intValue] / [outQKs.strides[2] intValue];
-    //int dim3 = [outQKs.strides[2] intValue] / [outQKs.strides[3] intValue];
-    //NSLog(@"dims = %d, %d, %d", dim1, dim2, dim3);
-
-    // ane fp16 output is aligned with 64 bytes or 32 element of fp16
-    // 1500 is not multiple of 32 => ane appends 4 of zeors to 1504
     uint16* fromPtr = (uint16*)outQKs.dataPointer;
     float* toPtr = out_cross_qks;
+    // ane fp16 output is aligned with 64 bytes or 32 element of fp16
+    // 1500 is not multiple of 32 => ane appends 4 of zeors to 1504
+    //showStrides(outQKs);
+    int outQKsStride = [outQKs.strides[2] intValue];
+
+    // This for loop is extramely slow, for small model
+    // decoder256Test takes 57ms, this takes 11ms
     for(int i=0; i<n_layer * n_head * 256; i++) {
         float16ToFloat32(fromPtr, toPtr, 1500);
-        fromPtr += 1504;
+        fromPtr += outQKsStride;
         toPtr += 1500;
     }
 
     float16ToFloat32((uint16*)outMKV.dataPointer, out_new_masked_kv_caches, outMKV.count);
     float16ToFloat32((uint16*)outCKV.dataPointer, out_new_cross_kv_caches, outCKV.count);
+
     if (!isPredicted) {
         unlock(outX);
         unlock(outQKs);
@@ -134,7 +128,6 @@ void predictWith(
         unlock(outCKV);
         isPredicted = true;
     }
-    //NSLog(@"4 %.3f", CACurrentMediaTime() - startT);
 }
 
 

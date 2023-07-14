@@ -6,6 +6,10 @@ import sys
 import numpy as np
 from timeit import default_timer as timer
 
+print("--------------")
+print("🐳 Decoder1 🐳")
+print("--------------")
+
 # model setting
 modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
 model = whisper.load_model(modelName).cpu()
@@ -54,6 +58,7 @@ decoder = ct.convert(
     outputs=outputs,
     compute_units=ct.ComputeUnit.ALL,
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
+    skip_model_load=True,
 )
 print(f"{modelName} decoder1 conversion time: {timer()-startT:.3f}s")
 
@@ -63,9 +68,9 @@ if not os.path.exists(folder_path):
 decoder.save(f"{folder_path}/CoremlDecoder.mlpackage")
 
 ## test accuracy
-torch_output = traced_decoder.forward(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)[0]
-print(torch_output.shape)
-print("torch model output:", torch_output[:,0,:2], torch_output[4,0,-1])
+#torch_output = traced_decoder.forward(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)[0]
+#print(torch_output.shape)
+#print("torch model output:", torch_output[:,0,:2], torch_output[4,0,-1])
 #
 # this generate wrong result after first row, because of coremltools fp16 bug
 # https://github.com/apple/coremltools/issues/1893

@@ -6,6 +6,9 @@ import sys
 import numpy as np
 from timeit import default_timer as timer
 
+print("----------------")
+print("🐳 Decoder256 🐳")
+print("----------------")
 
 # model setting
 modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
@@ -54,9 +57,9 @@ decoder = ct.convert(
     outputs=outputs,
     compute_units=ct.ComputeUnit.CPU_AND_NE,
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
+    skip_model_load=True,
 )
 print(f"{modelName} decoder256 conversion time: {timer()-startT:.3f}s")
-print("")
 
 folder_path = f"coreml/{modelName}"
 if not os.path.exists(folder_path):

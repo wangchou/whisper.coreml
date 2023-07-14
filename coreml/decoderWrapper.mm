@@ -35,7 +35,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     NSError *error = nil;
     MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
     // MLComputeUnitsCPUOnly, MLComputeUnitsCPUAndGPU, MLComputeUnitsAll,  MLComputeUnitsCPUAndNeuralEngine
-    config.computeUnits = 3;
+    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
     const void* model = CFBridgingRetain([[CoremlDecoder alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
     if(error) {
       NSLog(@"Error load model from %s, %@", modelPath, error);
@@ -84,14 +84,12 @@ void predictWith(
     float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 449);
     float32ToFloat16(masked_kv_caches, (uint16*)inMkv.dataPointer, n_layer * 2 * 5 * 448 * n_state);
 
-    // this takes 4ms on tiny, about 40% of this func
     if (isNewCKV) {
         float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 1 * 1500 * n_state);
     }
 
     CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX xa:inXa qk_mask:inQk_mask masked_kv_caches:inMkv cross_kv_caches:inCkv];
 
-    // output arrays
     MLPredictionOptions* options = [MLPredictionOptions alloc];
 
     NSDictionary *outputBackings = @{
@@ -104,21 +102,20 @@ void predictWith(
     CoremlDecoderOutput *output;
 
     output = (CoremlDecoderOutput*)[(__bridge id)model predictionFromFeatures:input options:options error:&error];
-    //NSLog(@"prediction %.3f", CACurrentMediaTime() - startT);
+
     if(error) {
         NSLog(@"%@", error);
     }
-    //showStrides(outX);
-    //showStrides(outMKV);
-    //NSLog(@"%ld", output.out_x.count);
 
     // ane fp16 output is aligned with 64 bytes or 32 element of fp16
     // 51865 is not multiple of 32 => ane appends zeors to 51872
+    //showStrides(outX);
     uint16* fromPtr = (uint16*)outX.dataPointer;
     float* toPtr = out_x;
+    int outXStride = [outX.strides[0] intValue];
     for(int bs=0; bs<5; bs++) {
         float16ToFloat32(fromPtr, toPtr, n_vocab);
-        fromPtr += [outX.strides[0] intValue];
+        fromPtr += outXStride;
         toPtr += n_vocab;
     }
 

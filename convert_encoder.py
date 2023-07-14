@@ -7,6 +7,10 @@ import numpy as np
 import os
 import sys
 
+print("-------------")
+print("🐳 Encoder 🐳")
+print("-------------")
+
 modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
 model = whisper.load_model(modelName).cpu()
 modelSize = modelName.split(".")[0]
@@ -18,10 +22,10 @@ encoder.eval()
 
 total_conversion_time = 0
 total_prediction_time = 0
-def convertBlock4(encoder, from_block_idx):
+skip_model_load = True
+def convertBlock4(encoder, from_block_idx, skip_model_load: bool):
     global total_conversion_time
     global total_prediction_time
-    print("")
     print(f"- {modelName} encoder Block {from_block_idx}..<{min(from_block_idx+4, n_layer)} -")
 
     #
@@ -59,6 +63,7 @@ def convertBlock4(encoder, from_block_idx):
         compute_units=ct.ComputeUnit.ALL,
         minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
         pass_pipeline=pipeline,
+        skip_model_load=skip_model_load,
     )
 
     conversion_time = timer() - startT
@@ -72,35 +77,38 @@ def convertBlock4(encoder, from_block_idx):
         os.mkdir(folder_path)
     encoder.save(f"{folder_path}/CoremlEncoder{from_block_idx}.mlpackage")
 
-    #
-    # prediction
-    #
-    torch_output = traced_encoder.forward(x)
-    #print("torch model output:", torch_output)
+    if not skip_model_load:
+        #
+        # prediction
+        #
+        torch_output = traced_encoder.forward(x)
+        #print("torch model output:", torch_output)
 
-    x = x.cpu().detach().numpy()
+        x = x.cpu().detach().numpy()
 
-    durations = []
-    for i in range(5):
-        startT = timer()
-        coreml_output = torch.from_numpy(
-            list(encoder.predict({'x': x}).values())[0]
-        )
-        durations.append(timer() - startT)
-    prediction_time = np.median(durations)
-    total_prediction_time += prediction_time
-    print(f"prediction time: {prediction_time:.3f}s")
+        durations = []
+        for i in range(5):
+            startT = timer()
+            coreml_output = torch.from_numpy(
+                list(encoder.predict({'x': x}).values())[0]
+            )
+            durations.append(timer() - startT)
+        prediction_time = np.median(durations)
+        total_prediction_time += prediction_time
+        print(f"prediction time: {prediction_time:.3f}s")
 
-    #print(f"coreml {modelName} block{i} model output:", coreml_output)
-    diff = torch.abs(torch_output - coreml_output).detach()
-    print("diff avg,max:", torch.mean(diff), torch.max(diff))
+        #print(f"coreml {modelName} block{i} model output:", coreml_output)
+        diff = torch.abs(torch_output - coreml_output).detach()
+        print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
+skip_model_load = True
 for block_idx in range(0, n_layer, 4):
-    convertBlock4(encoder, block_idx)
+    convertBlock4(encoder, block_idx, skip_model_load)
 
 print("---------------------")
 print(f"{modelName} encoder total conversion time: {total_conversion_time:.3f}s")
-print(f"{modelName} encoder total prediction_time time: {total_prediction_time:.3f}s")
+if not skip_model_load:
+    print(f"{modelName} encoder total prediction_time time: {total_prediction_time:.3f}s")
 print("")
 # note
 # conversion time on Macbook M1 Air 16GB

@@ -51,11 +51,11 @@ int main() {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(decoder, // model
                 x, xa, qk_mask, masked_kv_caches, cross_kv_caches, // input
-                n_layer, n_state, n_head, n_vocab, i == 0, // context parameter
+                n_layer, n_state, n_head, n_vocab, i==0, // context parameter
                 out_x, out_new_masked_kv_caches // outputs
                 );
         chrono::steady_clock::time_point end = chrono::steady_clock::now();
-        cout << "decoder1 " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << endl;
+        cout << "decoder1 " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << ", isNewCKV=" << (i==0) << endl;
     }
 
     // it should match pytorch output:
