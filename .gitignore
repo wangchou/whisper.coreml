@@ -19,3 +19,14 @@ coreml/base.en
 coreml/small.en
 coreml/medium.en
 coreml/large
+
+encoderOnly/coreml/tiny
+encoderOnly/coreml/base
+encoderOnly/coreml/small
+encoderOnly/coreml/medium
+encoderOnly/coreml/large
+encoderOnly/coreml/tiny.en
+encoderOnly/coreml/base.en
+encoderOnly/coreml/small.en
+encoderOnly/coreml/medium.en
+encoderOnly/coreml/large
