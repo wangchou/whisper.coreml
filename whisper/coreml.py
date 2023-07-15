@@ -73,38 +73,36 @@ class CoremlDecoder256():
             self.out_x = torch.ones((bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
             self.out_cross_qks = torch.ones((n_layer * bs, n_head, max_n_ctx, 1500), dtype=dtype1).contiguous()
             self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
-            self.new_cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state), dtype=dtype1).contiguous()
             self.outXPtr = ctypes.cast(self.out_x.data_ptr(), f32Ptr)
             self.outCQKPtr = ctypes.cast(self.out_cross_qks.data_ptr(), f32Ptr)
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
-            self.outCKVPtr = ctypes.cast(self.new_cross_kv_caches.data_ptr(), f32Ptr)
 
-    def predictWith(self, x, xa, qk_mask):
+    def predictWith(self, x, qk_mask, cross_kv_caches, isNewCKV):
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
                                                 f32Ptr, f32Ptr, f32Ptr,
-                                                c_int, c_int, c_int,
-                                                f32Ptr, f32Ptr, f32Ptr, f32Ptr]
+                                                c_int, c_int, c_int, c_bool,
+                                                f32Ptr, f32Ptr, f32Ptr]
         self.decoderObj.predictWith.restypes = None
 
         # prepare inputs
         x = x.contiguous()
         xPtr = ctypes.cast(x.data_ptr(), f32Ptr)
-        xa = xa.contiguous()
-        xaPtr = ctypes.cast(xa.data_ptr(), f32Ptr)
         qk_mask = qk_mask.contiguous()
         qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), f32Ptr)
+        cross_kv_caches = cross_kv_caches.contiguous()
+        ckvPtr = ctypes.cast(cross_kv_caches.data_ptr(), f32Ptr)
 
         # predict
         #startT = timer()
         self.decoderObj.predictWith(self.mlmodel_handle,
-                                    xPtr, xaPtr, qkMaskPtr,
-                                    self.n_layer, self.n_state, self.n_head,
-                                    self.outXPtr, self.outCQKPtr, self.outMKVPtr, self.outCKVPtr)
+                                    xPtr, qkMaskPtr, ckvPtr,
+                                    self.n_layer, self.n_state, self.n_head, isNewCKV,
+                                    self.outXPtr, self.outCQKPtr, self.outMKVPtr)
         #print(f"\tpredictWit took {timer() - startT:.3f}")
 
-        return self.out_x, self.out_cross_qks, self.new_masked_kv_caches, self.new_cross_kv_caches
+        return self.out_x, self.out_cross_qks, self.new_masked_kv_caches
 
     def closeModel(self):
         if self.mlmodel_handle != None:

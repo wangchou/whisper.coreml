@@ -191,7 +191,8 @@ class TextDecoder(nn.Module):
                 _x, cross_qks, _new_masked_kv_caches = self.forwardBlocks(x_bs[bs_idx],
                                                                           qk_mask,
                                                                           masked_kv_caches,
-                                                                          new_cross_kv_caches)
+                                                                          new_cross_kv_caches,
+                                                                          isNewCKV=(bs_idx==0))
                 if bs_idx == 0:
                     x = _x
                     new_masked_kv_caches = _new_masked_kv_caches
@@ -238,7 +239,7 @@ class TextDecoder(nn.Module):
             else:
                 if self.coremlDecoder256 == None:
                     self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head, self.modelName)
-                return self.coremlDecoder256.predictWith(x, xa, qk_mask)
+                return self.coremlDecoder256.predictWith(x, qk_mask, cross_kv_caches, isNewCKV)
         ############################
 
         cross_qks = []

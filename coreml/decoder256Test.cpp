@@ -31,20 +31,19 @@ int main() {
     const void* decoder = loadModel("./small/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head);
 
     float* x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
-    float* xa = getOnes(bs * 1500 * n_state); // (bs, 1500, n_state)
     float* qk_mask = getOnes(max_n_ctx * max_n_ctx); // (256, 256)
+    float* cross_kv_caches =  getOnes( n_layer * 2 * 1 * 1500 * n_state);// (n_layer * 2, bs, 1500, n_state)
 
     float* out_x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
     float* out_cross_qks = getOnes( n_layer * bs * n_head * max_n_ctx * 1500);// (n_layer * bs, n_head, 1, 1500)
     float* out_new_masked_kv_caches = getOnes( n_layer * 2 * bs * max_n_ctx * n_state); // (n_layer * 2, bs, 1, n_state)
-    float* out_new_cross_kv_caches = getOnes( n_layer * 2 * 1 * 1500 * n_state); // (n_layer * 2, bs, 1, n_state)
 
     for(int i=0; i<5; i++) {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(decoder, // model
-                x, xa, qk_mask, // input
-                n_layer, n_state, n_head, // context parameter
-                out_x, out_cross_qks, out_new_masked_kv_caches, out_new_cross_kv_caches // outputs
+                x, qk_mask, cross_kv_caches,// input
+                n_layer, n_state, n_head, i==0, // context parameter
+                out_x, out_cross_qks, out_new_masked_kv_caches // outputs
                 );
         chrono::steady_clock::time_point end = chrono::steady_clock::now();
         cout << "Decoder256 " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << endl;

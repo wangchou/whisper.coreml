@@ -8,14 +8,13 @@
 
 // input arrays
 MLMultiArray *inX;
-MLMultiArray *inXa;
 MLMultiArray *inQk_mask;
+MLMultiArray *inCkv;
 
 // output arrays
 MLMultiArray *outX;
 MLMultiArray *outQKs;
 MLMultiArray *outMKV;
-MLMultiArray *outCKV;
 
 bool isPredicted = false;
 bool isModelLoaded = false;
@@ -44,13 +43,12 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     int max_n_ctx = 256;
     // input arrays
     inX = getPixelBufferArray3(1, max_n_ctx, n_state);
-    inXa = getPixelBufferArray3(1, 1500, n_state);
     inQk_mask = getPixelBufferArray2(max_n_ctx, max_n_ctx);
+    inCkv = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
 
     outX = getPixelBufferArray3(1, max_n_ctx, n_state);
     outQKs = getPixelBufferArray4(n_layer, n_head, max_n_ctx, 1500);
     outMKV = getPixelBufferArray4(n_layer*2, 1, max_n_ctx, n_state);
-    outCKV = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
     if (!isModelLoaded) {
         NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
     }
@@ -61,25 +59,27 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
 void predictWith(
     const void* model,
     float* x, // (1, 256, n_state)
-    float* xa, // (1, 1500, n_state)
     float* qk_mask, // (256, 256)
+    float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
     int n_layer,
     int n_state,
     int n_head,
+    bool isNewCKV,
     float* out_x,
     float* out_cross_qks,
-    float* out_new_masked_kv_caches,
-    float* out_new_cross_kv_caches
+    float* out_new_masked_kv_caches
 ) {
     //CFTimeInterval startT = CACurrentMediaTime();
 
     // input arrays
     float32ToFloat16(x, (uint16*)inX.dataPointer, 1 * 256 * n_state);
-    float32ToFloat16(xa, (uint16*)inXa.dataPointer, 1 * 1500 * n_state);
     float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 256 * 256);
+    if (isNewCKV) {
+        float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 1 * 1500 * n_state);
+    }
     //NSLog(@"1 %.3f", CACurrentMediaTime() - startT);
 
-    CoremlDecoder256Input* input = [[CoremlDecoder256Input alloc] initWithX:inX xa:inXa qk_mask:inQk_mask];
+    CoremlDecoder256Input* input = [[CoremlDecoder256Input alloc] initWithX:inX qk_mask:inQk_mask cross_kv_caches:inCkv];
 
     MLPredictionOptions* options = [MLPredictionOptions alloc];
 
@@ -87,7 +87,6 @@ void predictWith(
         @"out_x":outX,
         @"out_cross_qks":outQKs,
         @"out_new_masked_kv_caches":outMKV,
-        @"out_new_cross_kv_caches":outCKV
     };
     [options setOutputBackings:outputBackings];
 
@@ -101,7 +100,6 @@ void predictWith(
     }
 
     float16ToFloat32((uint16*)outX.dataPointer, out_x, outX.count);
-
 
     uint16* fromPtr = (uint16*)outQKs.dataPointer;
     float* toPtr = out_cross_qks;
@@ -119,13 +117,11 @@ void predictWith(
     }
 
     float16ToFloat32((uint16*)outMKV.dataPointer, out_new_masked_kv_caches, outMKV.count);
-    float16ToFloat32((uint16*)outCKV.dataPointer, out_new_cross_kv_caches, outCKV.count);
 
     if (!isPredicted) {
         unlock(outX);
         unlock(outQKs);
         unlock(outMKV);
-        unlock(outCKV);
         isPredicted = true;
     }
 }
@@ -134,12 +130,11 @@ void predictWith(
 void closeModel(const void* model) {
     CFRelease(model);
     CFRelease(inX.pixelBuffer);
-    CFRelease(inXa.pixelBuffer);
+    CFRelease(inCkv.pixelBuffer);
 
     CFRelease(outX.pixelBuffer);
     CFRelease(outQKs.pixelBuffer);
     CFRelease(outMKV.pixelBuffer);
-    CFRelease(outCKV.pixelBuffer);
     isModelLoaded = false;
     isPredicted = false;
 }

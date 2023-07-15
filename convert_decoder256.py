@@ -30,24 +30,27 @@ bs = 1 # beam_size
 # max token len for first time = max_prefix_len(224) + sot_len(3)
 max_n_ctx = decoder.max_n_ctx_for_1st
 x = torch.ones((bs, max_n_ctx, n_state))
-xa = torch.ones((1, 1500, n_state))
 qk_mask = torch.zeros((max_n_ctx, max_n_ctx))
+cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state))
 
 traced_decoder = torch.jit.trace_module(decoder,
-                                        {'forwardBlocks': (x, xa, qk_mask)})
+                                        {'forwardBlocks': {"x":x,
+                                                           "qk_mask": qk_mask,
+                                                           "cross_kv_caches": cross_kv_caches}
+                                        },
+                                        example_inputs_is_kwarg=True)
 # ct.convert only look forward func
 traced_decoder.forward = traced_decoder.forwardBlocks
 
 # input types for convert
 input1 = ct.TensorType("x", x.shape, dtype=inType)
-input2 = ct.TensorType("xa", xa.shape, dtype=inType)
-input3 = ct.TensorType("qk_mask", qk_mask.shape, dtype=inType)
+input2 = ct.TensorType("qk_mask", qk_mask.shape, dtype=inType)
+input3 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=inType)
 inputs = [input1, input2, input3]
 
 outputs = [ct.TensorType("out_x", dtype=outType),
            ct.TensorType("out_cross_qks", dtype=outType),
-           ct.TensorType("out_new_masked_kv_caches", dtype=outType),
-           ct.TensorType("out_new_cross_kv_caches", dtype=outType)]
+           ct.TensorType("out_new_masked_kv_caches", dtype=outType)]
 
 startT = timer()
 decoder = ct.convert(
