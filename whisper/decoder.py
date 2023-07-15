@@ -62,16 +62,12 @@ class CrossMultiHeadAttention(MultiHeadAttention):
     def forward(
         self,
         x: Tensor,
-        xa: Tensor,
-        cache_k: Optional[Tensor] = None,
-        cache_v: Optional[Tensor] = None,
+        cache_k: Tensor,
+        cache_v: Tensor,
     ):
         q = self.query(x) * self.qk_scale
-        k = self.key(xa) if cache_k is None else cache_k
-        v = self.value(xa) if cache_v is None else cache_v
-
-        new_k = k
-        new_v = v
+        k = cache_k
+        v = cache_v
 
         q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
@@ -82,7 +78,7 @@ class CrossMultiHeadAttention(MultiHeadAttention):
         w = qk.softmax(dim=-1).to(q.dtype)
         wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
 
-        return self.out(wv), qk, new_k, new_v
+        return self.out(wv), qk
 
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
@@ -106,7 +102,6 @@ class ResidualAttentionBlock(nn.Module):
     def forward(
         self,
         x: Tensor,
-        xa: Optional[Tensor] = None,
         qk_mask: Optional[Tensor] = None,
         mk: Optional[Tensor] = None,
         mv: Optional[Tensor] = None,
@@ -117,10 +112,10 @@ class ResidualAttentionBlock(nn.Module):
         x = x + x_out
         cross_qk = new_ck = new_cv = None
         if self.cross_attn:
-            x_out, cross_qk, new_ck, new_cv = self.cross_attn(self.cross_attn_ln(x), xa, cache_k=ck, cache_v=cv)
+            x_out, cross_qk = self.cross_attn(self.cross_attn_ln(x), cache_k=ck, cache_v=cv)
             x = x + x_out
         x = x + self.mlp(self.mlp_ln(x))
-        return x, cross_qk, new_mk, new_mv, new_ck, new_cv
+        return x, cross_qk, new_mk, new_mv
 
 class TextDecoder(nn.Module):
     def __init__(
@@ -153,6 +148,13 @@ class TextDecoder(nn.Module):
         # not sure why... decoder227 is slower than decoder256
         self.max_n_ctx_for_1st = 256
 
+    def crossKVCaches(self, xa: Tensor):
+        cross_kv_caches = []
+        for block in self.blocks:
+            cross_kv_caches.append(block.cross_attn.key(xa).unsqueeze(0))
+            cross_kv_caches.append(block.cross_attn.value(xa).unsqueeze(0))
+        return torch.cat(cross_kv_caches, dim=0)
+
     def forward(self, x: Tensor, xa: Tensor,
                 text_offset: Tensor,
                 isNewCKV: Tensor,
@@ -171,6 +173,7 @@ class TextDecoder(nn.Module):
         x = x.to(xa.dtype)
 
         if text_offset == 0: # decoder256
+            new_cross_kv_caches = self.crossKVCaches(xa) if cross_kv_caches is None else cross_kv_caches
             max_n_ctx = self.max_n_ctx_for_1st
             qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf
@@ -185,10 +188,10 @@ class TextDecoder(nn.Module):
                 # cross_kv_caches is the same in all beams
                 # TODO: this calculate redundant cross_kv_caches 5 times,
                 #       should move that calculating to encoder or independent sub-model
-                _x, cross_qks, _new_masked_kv_caches, new_cross_kv_caches = self.forwardBlocks(x_bs[bs_idx],
-                                                                                               xa,
-                                                                                               qk_mask,
-                                                                                               masked_kv_caches)
+                _x, cross_qks, _new_masked_kv_caches = self.forwardBlocks(x_bs[bs_idx],
+                                                                          qk_mask,
+                                                                          masked_kv_caches,
+                                                                          new_cross_kv_caches)
                 if bs_idx == 0:
                     x = _x
                     new_masked_kv_caches = _new_masked_kv_caches
@@ -207,7 +210,6 @@ class TextDecoder(nn.Module):
                                  torch.FloatTensor([[0]])],
                                  dim=1)
             logits, new_masked_kv_caches = self.forwardBlocks(x,
-                                                              xa,
                                                               qk_mask,
                                                               masked_kv_caches,
                                                               cross_kv_caches,
@@ -219,7 +221,6 @@ class TextDecoder(nn.Module):
 
     def forwardBlocks(self,
                       x: Tensor,
-                      xa: Optional[Tensor] = None,
                       qk_mask: Optional[Tensor] = None,
                       masked_kv_caches: Optional[Tensor] = None,
                       cross_kv_caches: Optional[Tensor] = None,
@@ -242,7 +243,6 @@ class TextDecoder(nn.Module):
 
         cross_qks = []
         new_masked_kv_caches = []
-        new_cross_kv_caches = []
 
         if masked_kv_caches is not None:
             mkv_caches = masked_kv_caches.split(1)
@@ -262,17 +262,14 @@ class TextDecoder(nn.Module):
                 ck = ckv_caches[layer_idx*2].squeeze(0)
                 cv = ckv_caches[layer_idx*2 + 1].squeeze(0)
 
-            x, cross_qk, new_mk, new_mv, new_ck, new_cv = block(x, xa, qk_mask, mk, mv, ck, cv)
+            x, cross_qk, new_mk, new_mv= block(x, qk_mask, mk, mv, ck, cv)
 
             cross_qks.append(cross_qk)
             new_masked_kv_caches.append(new_mk)
             new_masked_kv_caches.append(new_mv)
-            new_cross_kv_caches.append(new_ck)
-            new_cross_kv_caches.append(new_cv)
 
         cross_qks = torch.cat(cross_qks)
         new_masked_kv_caches = torch.stack(new_masked_kv_caches)
-        new_cross_kv_caches = torch.stack(new_cross_kv_caches)
 
         x = self.ln(x)
 
@@ -283,4 +280,4 @@ class TextDecoder(nn.Module):
 
             return logits, new_masked_kv_caches
         else: # decoder256 and decoder call from add timestamp
-            return x, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+            return x, cross_qks, new_masked_kv_caches
