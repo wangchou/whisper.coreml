@@ -35,17 +35,21 @@ masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state))
 cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state))
 
 traced_decoder = torch.jit.trace_module(decoder,
-                                        {'forwardBlocks': (x, xa, qk_mask, masked_kv_caches, cross_kv_caches)})
+                                        {'forwardBlocks': {"x":x,
+                                                           "qk_mask": qk_mask,
+                                                           "masked_kv_caches": masked_kv_caches,
+                                                           "cross_kv_caches": cross_kv_caches}
+                                        },
+                                        example_inputs_is_kwarg=True)
 # ct.convert only look forward func
 traced_decoder.forward = traced_decoder.forwardBlocks
 
 # input types for convert
 input1 = ct.TensorType("x", x.shape, dtype=inType)
-input2 = ct.TensorType("xa", xa.shape, dtype=inType)
-input3 = ct.TensorType("qk_mask", qk_mask.shape, dtype=inType)
-input4 = ct.TensorType("masked_kv_caches", masked_kv_caches.shape, dtype=inType)
-input5 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=inType)
-inputs = [input1, input2, input3, input4, input5]
+input2 = ct.TensorType("qk_mask", qk_mask.shape, dtype=inType)
+input3 = ct.TensorType("masked_kv_caches", masked_kv_caches.shape, dtype=inType)
+input4 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=inType)
+inputs = [input1, input2, input3, input4]
 
 outputs = [ct.TensorType("out_x", dtype=outType),
            ct.TensorType("out_new_masked_kv_caches", dtype=outType)]

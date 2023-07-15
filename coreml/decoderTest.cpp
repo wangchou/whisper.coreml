@@ -22,24 +22,24 @@ int main() {
     //const void* decoder = loadModel("./tiny/CoremlDecoder.mlmodelc", n_layer, n_state, n_head);
 
     // base model
-    int n_layer = 6;
-    int n_state = 512;
-    int bs = 5;
-    int n_head = 8; // tiny=6, base=8, small=12, medium=16, large=20
-    int text_offset = 10; // only for test
-    int n_vocab = 51864; //multi-lang: 51865, en only: 51864
-    const void* decoder = loadModel("./base.en/CoremlDecoder.mlmodelc", n_layer, n_state, n_head, n_vocab);
-
-    // small model
-    //int n_layer = 12;
-    //int n_state = 768;
+    //int n_layer = 6;
+    //int n_state = 512;
     //int bs = 5;
-    //int n_head = 12; // tiny=6, base=8, small=12, medium=16, large=20
+    //int n_head = 8; // tiny=6, base=8, small=12, medium=16, large=20
     //int text_offset = 10; // only for test
     //int n_vocab = 51864; //multi-lang: 51865, en only: 51864
+    //const void* decoder = loadModel("./base.en/CoremlDecoder.mlmodelc", n_layer, n_state, n_head, n_vocab);
+
+    // small model
+    int n_layer = 12;
+    int n_state = 768;
+    int bs = 5;
+    int n_head = 12; // tiny=6, base=8, small=12, medium=16, large=20
+    int text_offset = 10; // only for test
+    int n_vocab = 51865; //multi-lang: 51865, en only: 51864
+    const void* decoder = loadModel("./small/CoremlDecoder.mlmodelc", n_layer, n_state, n_head, n_vocab);
 
     float* x = getOnes(bs * n_state); // (bs, 1, n_state)
-    float* xa = getOnes(bs * 1500 * n_state); // (bs, 1500, n_state)
     float* qk_mask = getOnes(449); // (1, 449)
     float* masked_kv_caches = getOnes( n_layer * 2 * bs * 448 * n_state); // (n_layer * 2, bs, 448, n_state)
     float* cross_kv_caches =  getOnes( n_layer * 2 * 1 * 1500 * n_state);// (n_layer * 2, bs, 1500, n_state)
@@ -50,7 +50,7 @@ int main() {
     for(int i=0; i<5; i++) {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(decoder, // model
-                x, xa, qk_mask, masked_kv_caches, cross_kv_caches, // input
+                x, qk_mask, masked_kv_caches, cross_kv_caches, // input
                 n_layer, n_state, n_head, n_vocab, i==0, // context parameter
                 out_x, out_new_masked_kv_caches // outputs
                 );

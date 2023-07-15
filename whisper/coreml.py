@@ -5,6 +5,7 @@ from ctypes import cdll, c_int, c_float, c_char_p, c_void_p, c_bool, POINTER
 import ctypes
 import torch
 
+f32Ptr = POINTER(c_float)
 class CoremlEncoder():
     def __init__(self, n_layer: int, n_state: int, modelName):
         self.n_layer = n_layer
@@ -24,16 +25,16 @@ class CoremlEncoder():
     def predictWith(self, melSegment):
         if self.mlmodel_handle == None:
             self.loadModel()
-        self.encoderObj.predictWith.argtypes = [POINTER(c_float), POINTER(c_float)]
+        self.encoderObj.predictWith.argtypes = [f32Ptr, f32Ptr]
         self.encoderObj.predictWith.restypes = None
 
         # force memory continuous, this is very important
         melSegment = melSegment.contiguous()
-        melSegmentDataPtr = ctypes.cast(melSegment.data_ptr(), POINTER(c_float))
+        melSegmentDataPtr = ctypes.cast(melSegment.data_ptr(), f32Ptr)
 
         # alloc output buffer
         output_floats = torch.ones((1, 1500, self.n_state), dtype=torch.float32).contiguous()
-        output_floats_ptr = ctypes.cast(output_floats.data_ptr(), POINTER(c_float))
+        output_floats_ptr = ctypes.cast(output_floats.data_ptr(), f32Ptr)
         self.encoderObj.predictWith(melSegmentDataPtr, output_floats_ptr)
         return output_floats
 
@@ -43,19 +44,6 @@ class CoremlEncoder():
             self.encoderObj.closeModel.restypes = None
             self.encoderObj.closeModel()
 
-    def getModelSize(self, n_state: int):
-        if n_state == 384:
-            return "tiny"
-        elif n_state == 512:
-            return "base"
-        elif n_state == 768:
-            return "small"
-        elif n_state == 1024:
-            return "medium"
-        elif n_state == 1280:
-            return "large"
-        else:
-            return "unknown_model_size"
 ########################################
 class CoremlDecoder256():
     def __init__(self, n_layer: int, n_state: int, n_head: int, modelName):
@@ -86,27 +74,27 @@ class CoremlDecoder256():
             self.out_cross_qks = torch.ones((n_layer * bs, n_head, max_n_ctx, 1500), dtype=dtype1).contiguous()
             self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
             self.new_cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state), dtype=dtype1).contiguous()
-            self.outXPtr = ctypes.cast(self.out_x.data_ptr(), POINTER(c_float))
-            self.outCQKPtr = ctypes.cast(self.out_cross_qks.data_ptr(), POINTER(c_float))
-            self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), POINTER(c_float))
-            self.outCKVPtr = ctypes.cast(self.new_cross_kv_caches.data_ptr(), POINTER(c_float))
+            self.outXPtr = ctypes.cast(self.out_x.data_ptr(), f32Ptr)
+            self.outCQKPtr = ctypes.cast(self.out_cross_qks.data_ptr(), f32Ptr)
+            self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
+            self.outCKVPtr = ctypes.cast(self.new_cross_kv_caches.data_ptr(), f32Ptr)
 
     def predictWith(self, x, xa, qk_mask):
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
-                                                POINTER(c_float), POINTER(c_float), POINTER(c_float),
+                                                f32Ptr, f32Ptr, f32Ptr,
                                                 c_int, c_int, c_int,
-                                                POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float)]
+                                                f32Ptr, f32Ptr, f32Ptr, f32Ptr]
         self.decoderObj.predictWith.restypes = None
 
         # prepare inputs
         x = x.contiguous()
-        xPtr = ctypes.cast(x.data_ptr(), POINTER(c_float))
+        xPtr = ctypes.cast(x.data_ptr(), f32Ptr)
         xa = xa.contiguous()
-        xaPtr = ctypes.cast(xa.data_ptr(), POINTER(c_float))
+        xaPtr = ctypes.cast(xa.data_ptr(), f32Ptr)
         qk_mask = qk_mask.contiguous()
-        qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), POINTER(c_float))
+        qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), f32Ptr)
 
         # predict
         #startT = timer()
@@ -152,34 +140,32 @@ class CoremlDecoder():
             # prepare output buffers
             self.out_x = torch.ones((bs, 1, self.n_vocab), dtype=dtype1).contiguous()
             self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, 1, n_state), dtype=dtype1).contiguous()
-            self.outXPtr = ctypes.cast(self.out_x.data_ptr(), POINTER(c_float))
-            self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), POINTER(c_float))
+            self.outXPtr = ctypes.cast(self.out_x.data_ptr(), f32Ptr)
+            self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
 
-    def predictWith(self, x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV):
+    def predictWith(self, x, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV):
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
-                                                POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(c_float),
+                                                f32Ptr, f32Ptr, f32Ptr, f32Ptr,
                                                 c_int, c_int, c_int, c_int, c_bool,
-                                                POINTER(c_float), POINTER(c_float)]
+                                                f32Ptr, f32Ptr]
         self.decoderObj.predictWith.restypes = None
 
         # prepare inputs
         x = x.contiguous()
-        xPtr = ctypes.cast(x.data_ptr(), POINTER(c_float))
-        xa = xa.contiguous()
-        xaPtr = ctypes.cast(xa.data_ptr(), POINTER(c_float))
+        xPtr = ctypes.cast(x.data_ptr(), f32Ptr)
         qk_mask = qk_mask.contiguous()
-        qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), POINTER(c_float))
+        qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), f32Ptr)
         masked_kv_caches = masked_kv_caches.contiguous()
-        mkvPtr = ctypes.cast(masked_kv_caches.data_ptr(), POINTER(c_float))
+        mkvPtr = ctypes.cast(masked_kv_caches.data_ptr(), f32Ptr)
         cross_kv_caches = cross_kv_caches.contiguous()
-        ckvPtr = ctypes.cast(cross_kv_caches.data_ptr(), POINTER(c_float))
+        ckvPtr = ctypes.cast(cross_kv_caches.data_ptr(), f32Ptr)
 
         # predict
         startT = timer()
         self.decoderObj.predictWith(self.mlmodel_handle,
-                                    xPtr, xaPtr, qkMaskPtr, mkvPtr, ckvPtr,
+                                    xPtr, qkMaskPtr, mkvPtr, ckvPtr,
                                     self.n_layer, self.n_state, self.n_head, self.n_vocab, isNewCKV,
                                     self.outXPtr, self.outMKVPtr)
         #print(f"\tpredictWit took {timer() - startT:.3f}")

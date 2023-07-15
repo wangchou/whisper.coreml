@@ -217,7 +217,9 @@ class TextDecoder(nn.Module):
 
         return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
 
-    def forwardBlocks(self, x: Tensor, xa: Tensor,
+    def forwardBlocks(self,
+                      x: Tensor,
+                      xa: Optional[Tensor] = None,
                       qk_mask: Optional[Tensor] = None,
                       masked_kv_caches: Optional[Tensor] = None,
                       cross_kv_caches: Optional[Tensor] = None,
@@ -230,7 +232,7 @@ class TextDecoder(nn.Module):
             if masked_kv_caches is not None and x.shape[1] == 1:
                 if self.coremlDecoder == None:
                     self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.n_vocab, self.modelName)
-                return self.coremlDecoder.predictWith(x, xa, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+                return self.coremlDecoder.predictWith(x, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
 
             else:
                 if self.coremlDecoder256 == None:
@@ -248,7 +250,7 @@ class TextDecoder(nn.Module):
             ckv_caches = cross_kv_caches.split(1)
 
         for layer_idx, block in enumerate(self.blocks):
-            #if layer_idx > 0:
+            #if layer_idx >= 4:
             #    break
             # mk = masked_key_cache, ck = cross_key_cache
             mk = mv = ck = cv = None
