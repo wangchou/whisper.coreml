@@ -60,7 +60,7 @@ decoder = ct.convert(
     outputs=outputs,
     compute_units=ct.ComputeUnit.CPU_AND_NE,
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
-#    skip_model_load=True,
+    skip_model_load=True,
 )
 print(f"{modelName} decoder256 conversion time: {timer()-startT:.3f}s")
 

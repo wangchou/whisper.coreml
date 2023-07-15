@@ -245,41 +245,35 @@ class TextDecoder(nn.Module):
         cross_qks = []
         new_masked_kv_caches = []
 
+        # use two-levels split to reduce degree of edges in graph
+        # it fixes slow ANECompilerServie on medium/large model
         if masked_kv_caches is not None:
-            mkv_caches = masked_kv_caches.split(16) # 8 block * 2 = 16 (k,v)
+            mkv_caches = []
+            for split8 in masked_kv_caches.split(8):
+                mkv_caches += split8.split(1)
         if cross_kv_caches is not None:
-            #print("cross_kv_caches", cross_kv_caches.shape)
-            ckv_caches = cross_kv_caches.split(16)
+            ckv_caches = []
+            for split8 in cross_kv_caches.split(8):
+                ckv_caches += split8.split(1)
 
-        layer_offset = 0
-        for block8_idx in range(len(ckv_caches)):
+        for layer_idx, block in enumerate(self.blocks):
+            #if layer_idx >= 4:
+            #    break
+            # mk = masked_key_cache, ck = cross_key_cache
+            mk = mv = ck = cv = None
             if masked_kv_caches is not None:
-                block8_mkv_caches = mkv_caches[block8_idx].split(1)
-                #print("block8_mkv_caches", len(block8_mkv_caches))
+                mk = mkv_caches[layer_idx*2].squeeze(0)
+                mv = mkv_caches[layer_idx*2 + 1].squeeze(0)
+
             if cross_kv_caches is not None:
-                block8_ckv_caches = ckv_caches[block8_idx].split(1)
-                #print("block8_ckv_caches", len(block8_ckv_caches))
+                ck = ckv_caches[layer_idx*2].squeeze(0)
+                cv = ckv_caches[layer_idx*2 + 1].squeeze(0)
 
-            for layer_idx in range(layer_offset, min(layer_offset+8, self.n_layer)):
-                #if layer_idx >= 16:
-                #    break
-                block = self.blocks[layer_idx]
-                # mk = masked_key_cache, ck = cross_key_cache
-                mk = mv = ck = cv = None
-                if masked_kv_caches is not None:
-                    mk = block8_mkv_caches[(layer_idx*2)%16].squeeze(0)
-                    mv = block8_mkv_caches[(layer_idx*2 + 1)%16].squeeze(0)
+            x, cross_qk, new_mk, new_mv= block(x, qk_mask, mk, mv, ck, cv)
 
-                if cross_kv_caches is not None:
-                    ck = block8_ckv_caches[(layer_idx*2)%16].squeeze(0)
-                    cv = block8_ckv_caches[(layer_idx*2 + 1)%16].squeeze(0)
-
-                x, cross_qk, new_mk, new_mv= block(x, qk_mask, mk, mv, ck, cv)
-
-                cross_qks.append(cross_qk)
-                new_masked_kv_caches.append(new_mk)
-                new_masked_kv_caches.append(new_mv)
-            layer_offset += 8
+            cross_qks.append(cross_qk)
+            new_masked_kv_caches.append(new_mk)
+            new_masked_kv_caches.append(new_mv)
 
         cross_qks = torch.cat(cross_qks)
         new_masked_kv_caches = torch.stack(new_masked_kv_caches)
