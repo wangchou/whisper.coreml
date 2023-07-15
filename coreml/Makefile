@@ -1,7 +1,7 @@
 #usage: model=[tiny|base|small|medium|large] make [all|clean]
 MODEL = $$model
 
-all: $(MODEL)/encoderTest $(MODEL)/decoderTest $(MODEL)/decoder256Test
+all: $(MODEL)/encoderTest $(MODEL)/decoderTest $(MODEL)/decoder256Test $(MODEL)/crossKVTest
 
 $(MODEL)/encoderTest: encoderTest.cpp $(MODEL)/encoderWrapper.so
 	cp encoderTest.cpp ${@D}
@@ -37,6 +37,17 @@ $(MODEL)/decoder256Wrapper.so: decoder256Wrapper.h decoder256Wrapper.mm
 	xcrun coremlc compile ${@D}/CoremlDecoder256.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlDecoder256.mlpackage ${@D}
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoder256Wrapper.mm ${@D}/CoremlDecoder256.m ${@D}/coremlUtility.mm -o ${@D}/decoder256Wrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
+
+$(MODEL)/crossKVTest: crossKVTest.cpp $(MODEL)/crossKVWrapper.so
+	cp crossKVTest.cpp ${@D}
+	c++ -I${@D} ${@D}/crossKVTest.cpp ${@D}/crossKVWrapper.so -o ${@D}/crossKVTest
+
+$(MODEL)/crossKVWrapper.so: crossKVWrapper.h crossKVWrapper.mm
+	cp crossKVWrapper* ${@D}
+	cp coremlUtility* ${@D}
+	xcrun coremlc compile ${@D}/CoremlCrossKV.mlpackage ${@D}
+	xcrun coremlc generate ${@D}/CoremlCrossKV.mlpackage ${@D}
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/crossKVWrapper.mm ${@D}/CoremlCrossKV.m ${@D}/coremlUtility.mm -o ${@D}/crossKVWrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 clean:
 	rm -rf $(MODEL)/*.mlmodelc

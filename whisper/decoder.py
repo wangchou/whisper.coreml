@@ -11,7 +11,7 @@ from torch import Tensor, nn
 from .decoding import decode as decode_function
 from .decoding import detect_language as detect_language_function
 from .transcribe import transcribe as transcribe_function
-from .coreml import CoremlDecoder, CoremlDecoder256
+from .coreml import CoremlDecoder, CoremlDecoder256, CoremlCrossKV
 from timeit import default_timer as timer
 
 class MultiHeadAttention(nn.Module):
@@ -141,6 +141,7 @@ class TextDecoder(nn.Module):
         self.register_buffer("mask", mask, persistent=False)
         self.coremlDecoder = None
         self.coremlDecoder256 = None
+        self.coremlCrossKV = None
         self.use_coreml = use_coreml
         self.modelName = modelName
 
@@ -149,11 +150,16 @@ class TextDecoder(nn.Module):
         self.max_n_ctx_for_1st = 256
 
     def crossKVCaches(self, xa: Tensor):
-        cross_kv_caches = []
-        for block in self.blocks:
-            cross_kv_caches.append(block.cross_attn.key(xa).unsqueeze(0))
-            cross_kv_caches.append(block.cross_attn.value(xa).unsqueeze(0))
-        return torch.cat(cross_kv_caches, dim=0)
+        if self.use_coreml:
+            if self.coremlCrossKV == None:
+                self.coremlCrossKV = CoremlCrossKV(self.n_layer, self.n_state, self.modelName)
+            return self.coremlCrossKV.predictWith(xa)
+        else:
+            cross_kv_caches = []
+            for block in self.blocks:
+                cross_kv_caches.append(block.cross_attn.key(xa))
+                cross_kv_caches.append(block.cross_attn.value(xa))
+            return torch.cat(cross_kv_caches, dim=0).unsqueeze(1)
 
     def forward(self, x: Tensor, xa: Tensor,
                 text_offset: Tensor,

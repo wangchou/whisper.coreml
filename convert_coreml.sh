@@ -10,6 +10,7 @@ fi
 python convert_encoder.py $1
 python convert_decoder.py $1
 python convert_decoder256.py $1
+python convert_ckv.py $1
 
 # build shared library
 echo ""

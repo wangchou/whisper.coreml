@@ -177,3 +177,55 @@ class CoremlDecoder():
             self.decoderObj.closeModel(self.mlmodel_handle)
 
 ########################################
+class CoremlCrossKV():
+    def __init__(self, n_layer: int, n_state: int, modelName):
+        self.n_layer = n_layer
+        self.n_state = n_state
+        self.modelName = modelName
+        self.crossKVObj = None
+        self.mlmodel_handle = None
+
+    def loadModel(self):
+        if self.mlmodel_handle == None:
+            self.crossKVObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/crossKVWrapper.so')
+            self.crossKVObj.loadModel.argtypes = [c_char_p, c_int, c_int]
+            self.crossKVObj.loadModel.restype = c_void_p
+            c_string = bytes(f'./coreml/{self.modelName}/CoremlCrossKV.mlmodelc', 'ascii')
+            self.mlmodel_handle = self.crossKVObj.loadModel(c_string, self.n_layer, self.n_state)
+
+            n_state = self.n_state
+            n_layer = self.n_layer
+
+            dtype1=torch.float32
+            # prepare output buffers
+            self.out_cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state), dtype=dtype1).contiguous()
+            self.outCKVPtr = ctypes.cast(self.out_cross_kv_caches.data_ptr(), f32Ptr)
+
+    def predictWith(self, xa):
+        if self.mlmodel_handle == None:
+            self.loadModel()
+        self.crossKVObj.predictWith.argtypes = [c_void_p,
+                                                f32Ptr,
+                                                c_int, c_int,
+                                                f32Ptr]
+        self.crossKVObj.predictWith.restypes = None
+
+        # prepare inputs
+        xa = xa.contiguous()
+        xaPtr = ctypes.cast(xa.data_ptr(), f32Ptr)
+
+        # predict
+        self.crossKVObj.predictWith(self.mlmodel_handle,
+                                    xaPtr,
+                                    self.n_layer, self.n_state,
+                                    self.outCKVPtr)
+
+        return self.out_cross_kv_caches
+
+    def closeModel(self):
+        if self.mlmodel_handle != None:
+            self.crossKVObj.closeModel.argtypes = [c_void_p]
+            self.crossKVObj.closeModel.restypes = None
+            self.crossKVObj.closeModel(self.mlmodel_handle)
+
+########################################
