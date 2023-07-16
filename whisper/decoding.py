@@ -165,7 +165,6 @@ class PyTorchInference(Inference):
                                                                  self.model.isNewCKV,
                                                                  self.model.masked_kv_caches,
                                                                  self.model.cross_kv_caches)
-        print(f"Predict tooks {timer()-startT:.3f}")
         startT = timer()
         n_ctx = tokens.shape[1]
         if n_ctx == 1 and self.model.text_offset > 0:
@@ -198,11 +197,15 @@ class PyTorchInference(Inference):
     def rearrange_kv_cache(self, source_indices):
         startT = timer()
         if source_indices != list(range(len(source_indices))):
-            # numpy is faster than torch 0.0026 -> 0.0016
+            # numpy is faster than torch 26ms -> 16ms
+            text_offset = self.model.text_offset
             np_array = self.model.masked_kv_caches.numpy()
+            # 16ms -> 5ms
+            np_array_part = np_array[:,:,:text_offset]
             for i in range(0, self.n_text_layer * 2):
                 # update the key/value cache to contain the selected sequences
-                np_array[i] = np_array[i][source_indices]
+                np_array_part[i] = np_array_part[i][source_indices]
+            np_array[:, :, :text_offset] = np_array_part
             self.model.masked_kv_caches = torch.from_numpy(np_array)
         print(f"rearrange_kv_cache tooks {timer()-startT:.3f}")
 

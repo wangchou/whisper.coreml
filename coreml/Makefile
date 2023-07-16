@@ -12,7 +12,8 @@ $(MODEL)/encoderWrapper.so: encoderWrapper.h encoderWrapper.mm
 	cp coremlUtility* ${@D}
 	xcrun coremlc generate  ${@D}/CoremlEncoder0.mlpackage ${@D}
 	for mlmodel in $(shell find $(MODEL) -name 'CoremlEncoder*.mlpackage') ; do \
-		xcrun coremlc compile  $$mlmodel ${@D} || exit 1; \
+		xcrun coremlc compile $$mlmodel ${@D} || exit 1; \
+		rm -rf $$mlmodel; \
     done
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/encoderWrapper.mm ${@D}/coremlUtility.mm ${@D}/CoremlEncoder0.m -o ${@D}/encoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate
 
@@ -25,6 +26,7 @@ $(MODEL)/decoderWrapper.so: decoderWrapper.h decoderWrapper.mm
 	cp coremlUtility* ${@D}
 	xcrun coremlc compile ${@D}/CoremlDecoder.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlDecoder.mlpackage ${@D}
+	rm -rf ${@D}/CoremlDecoder.mlpackage
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoderWrapper.mm ${@D}/CoremlDecoder.m ${@D}/coremlUtility.mm -o ${@D}/decoderWrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 $(MODEL)/decoder256Test: decoder256Test.cpp $(MODEL)/decoder256Wrapper.so
@@ -36,6 +38,7 @@ $(MODEL)/decoder256Wrapper.so: decoder256Wrapper.h decoder256Wrapper.mm
 	cp coremlUtility* ${@D}
 	xcrun coremlc compile ${@D}/CoremlDecoder256.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlDecoder256.mlpackage ${@D}
+	rm -rf ${@D}/CoremlDecoder256.mlpackage
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/decoder256Wrapper.mm ${@D}/CoremlDecoder256.m ${@D}/coremlUtility.mm -o ${@D}/decoder256Wrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 $(MODEL)/crossKVTest: crossKVTest.cpp $(MODEL)/crossKVWrapper.so
@@ -47,6 +50,7 @@ $(MODEL)/crossKVWrapper.so: crossKVWrapper.h crossKVWrapper.mm
 	cp coremlUtility* ${@D}
 	xcrun coremlc compile ${@D}/CoremlCrossKV.mlpackage ${@D}
 	xcrun coremlc generate ${@D}/CoremlCrossKV.mlpackage ${@D}
+	rm -rf ${@D}/CoremlCrossKV.mlpackage
 	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/crossKVWrapper.mm ${@D}/CoremlCrossKV.m ${@D}/coremlUtility.mm -o ${@D}/crossKVWrapper.so -framework Foundation -framework CoreML -framework Accelerate -framework QuartzCore
 
 clean:
