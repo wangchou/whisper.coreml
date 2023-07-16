@@ -110,7 +110,11 @@ class AudioEncoder(nn.Module):
         if self.use_coreml:
             if self.coremlEncoder == None:
                 self.coremlEncoder = CoremlEncoder(self.n_layer, self.n_state, self.modelName)
-            return self.coremlEncoder.predictWith(x)
+            result =  self.coremlEncoder.predictWith(x)
+            if self.modelName == "large":
+                self.coremlEncoder.closeModel()
+                self.coremlEncoder = None
+            return result
         ############################
 
         self.from_block_idx = 0

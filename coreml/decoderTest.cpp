@@ -41,8 +41,8 @@ int main() {
 
     float* x = getOnes(bs * n_state); // (bs, 1, n_state)
     float* qk_mask = getOnes(449); // (1, 449)
-    float* masked_kv_caches = getOnes( n_layer * 2 * bs * 448 * n_state); // (n_layer * 2, bs, 448, n_state)
-    float* cross_kv_caches =  getOnes( n_layer * 2 * 1 * 1500 * n_state);// (n_layer * 2, bs, 1500, n_state)
+    float* masked_kv_caches = getOnes( n_layer * 2 * bs * 448 * n_state); // (n_layer * 2, 1, 448, n_state)
+    float* cross_kv_caches =  getOnes( n_layer * 2 * 1 * 1500 * n_state);// (n_layer * 2, 1, 1500, n_state)
 
     float* out_x = getOnes(bs * n_vocab); // (bs, 1, n_state)
     float* out_new_masked_kv_caches = getOnes( n_layer * 2 * bs * 1 * n_state); // (n_layer * 2, bs, 1, n_state)

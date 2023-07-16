@@ -40,10 +40,11 @@ class CoremlEncoder():
         return output_floats
 
     def closeModel(self):
-        if self.mlmodel_handle != None:
+        if self.encoderObj != None:
             self.encoderObj.closeModel.argtypes = None
             self.encoderObj.closeModel.restypes = None
             self.encoderObj.closeModel()
+            self.encoderObj = None
 
 ########################################
 class CoremlDecoder256():
@@ -110,6 +111,8 @@ class CoremlDecoder256():
             self.decoderObj.closeModel.argtypes = [c_void_p]
             self.decoderObj.closeModel.restypes = None
             self.decoderObj.closeModel(self.mlmodel_handle)
+            self.decoderObj = None
+            self.mlmodel_handle = None
 
 ########################################
 class CoremlDecoder():
@@ -176,6 +179,8 @@ class CoremlDecoder():
             self.decoderObj.closeModel.argtypes = [c_void_p]
             self.decoderObj.closeModel.restypes = None
             self.decoderObj.closeModel(self.mlmodel_handle)
+            self.decoderObj = None
+            self.mlmodel_handle = None
 
 ########################################
 class CoremlCrossKV():
@@ -230,5 +235,7 @@ class CoremlCrossKV():
             self.crossKVObj.closeModel.argtypes = [c_void_p]
             self.crossKVObj.closeModel.restypes = None
             self.crossKVObj.closeModel(self.mlmodel_handle)
+            self.crossKVObj = None
+            self.mlmodel_handle = None
 
 ########################################

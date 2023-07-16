@@ -94,12 +94,11 @@ class Whisper(nn.Module):
         #startT = timer()
         if self.text_offset == 0:
             self.masked_kv_caches = None
-        output, cross_qks, new_masked_kv_caches, new_cross_kv_caches = self.decoder(tokens,
-                                                                                    self.encoder(mel),
-                                                                                    self.text_offset,
-                                                                                    self.isNewCKV,
-                                                                                    self.masked_kv_caches,
-                                                                                    self.cross_kv_caches)
+        output, cross_qks, new_masked_kv_caches = self.decoder(tokens,
+                                                               self.encoder(mel),
+                                                               self.text_offset,
+                                                               self.isNewCKV,
+                                                               self.masked_kv_caches)
         # this only called once in each add_word_timestamps,
         # => no next call
         # => no need for update self.xxx_cache

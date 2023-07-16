@@ -143,6 +143,7 @@ class TextDecoder(nn.Module):
         self.coremlDecoder = None
         self.coremlDecoder256 = None
         self.coremlCrossKV = None
+        self.cross_kv_caches = None
         self.use_coreml = use_coreml
         self.modelName = modelName
 
@@ -154,7 +155,11 @@ class TextDecoder(nn.Module):
         if self.use_coreml:
             if self.coremlCrossKV == None:
                 self.coremlCrossKV = CoremlCrossKV(self.n_layer, self.n_state, self.modelName)
-            return self.coremlCrossKV.predictWith(xa)
+            result = self.coremlCrossKV.predictWith(xa)
+            if self.modelName == "large":
+                self.coremlCrossKV.closeModel()
+                self.coremlCrossKV = None
+            return result
         else:
             cross_kv_caches = []
             for block in self.blocks:
@@ -165,8 +170,7 @@ class TextDecoder(nn.Module):
     def forward(self, x: Tensor, xa: Tensor,
                 text_offset: Tensor,
                 isNewCKV: Tensor,
-                masked_kv_caches: Optional[Tensor] = None,
-                cross_kv_caches: Optional[Tensor] = None):
+                masked_kv_caches: Optional[Tensor] = None):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
             the text tokens
@@ -180,7 +184,7 @@ class TextDecoder(nn.Module):
         x = x.to(xa.dtype)
 
         if text_offset == 0: # decoder256
-            new_cross_kv_caches = self.crossKVCaches(xa) if cross_kv_caches is None else cross_kv_caches
+            self.cross_kv_caches = self.crossKVCaches(xa) if self.cross_kv_caches is None else self.cross_kv_caches
             max_n_ctx = self.max_n_ctx_for_1st
             qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf
@@ -192,21 +196,22 @@ class TextDecoder(nn.Module):
 
             for bs_idx in range(len(x_bs)):
                 # cross_qk only used for word level timestamp, its bs=1
-                # cross_kv_caches is the same in all beams
-                # TODO: this calculate redundant cross_kv_caches 5 times,
-                #       should move that calculating to encoder or independent sub-model
-                _x, cross_qks, _new_masked_kv_caches = self.forwardBlocks(x_bs[bs_idx],
-                                                                          qk_mask,
-                                                                          masked_kv_caches,
-                                                                          new_cross_kv_caches,
-                                                                          isNewCKV=(bs_idx==0))
+                _x, _cross_qks, _new_masked_kv_caches = self.forwardBlocks(x_bs[bs_idx],
+                                                                           qk_mask,
+                                                                           masked_kv_caches,
+                                                                           self.cross_kv_caches,
+                                                                           isNewCKV=(bs_idx==0))
                 if bs_idx == 0:
                     x = _x
                     new_masked_kv_caches = _new_masked_kv_caches
+                    cross_qks = _cross_qks
                 else:
                     x = torch.cat([x, _x], dim=0)
                     new_masked_kv_caches = torch.cat([new_masked_kv_caches, _new_masked_kv_caches], dim=1)
 
+            if self.use_coreml and self.modelName == "large":
+                self.coremlDecoder256.closeModel()
+                self.coremlDecoder256 = None
             x = x.split(n_ctx, dim=1)[0]
             cross_qks = cross_qks.split(n_ctx, dim=2)[0]
             logits = (
@@ -220,12 +225,11 @@ class TextDecoder(nn.Module):
             logits, new_masked_kv_caches = self.forwardBlocks(x,
                                                               qk_mask,
                                                               masked_kv_caches,
-                                                              cross_kv_caches,
+                                                              self.cross_kv_caches,
                                                               isNewCKV)
             cross_qks = None
-            new_cross_kv_caches = None
 
-        return logits, cross_qks, new_masked_kv_caches, new_cross_kv_caches
+        return logits, cross_qks, new_masked_kv_caches
 
     def forwardBlocks(self,
                       x: Tensor,
