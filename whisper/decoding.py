@@ -146,10 +146,6 @@ class PyTorchInference(Inference):
         self.initial_token_length = initial_token_length
         self.n_text_layer = model.dims.n_text_layer
 
-        key_modules = [block.attn.key for block in self.model.decoder.blocks]
-        value_modules = [block.attn.value for block in self.model.decoder.blocks]
-        self.kv_modules = key_modules + value_modules
-
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
         print("---", self.model.text_offset, "---")
         if tokens.shape[-1] > self.initial_token_length:

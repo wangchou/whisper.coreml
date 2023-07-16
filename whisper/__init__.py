@@ -147,9 +147,22 @@ def load_model(
 
     dims = ModelDimensions(**checkpoint["dims"])
     model = Whisper(dims, use_coreml, name)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model_state_dict = checkpoint["model_state_dict"]
+    if use_coreml:
+        model_state_dict = skip_coreml_load(model_state_dict)
+    model.load_state_dict(model_state_dict)
 
     if alignment_heads is not None:
         model.set_alignment_heads(alignment_heads)
 
     return model.to(device)
+
+def skip_coreml_load(state_dict):
+    keys = list(state_dict.keys())
+    for k in keys:
+        is_encoder = all(substr in k for substr in ['encoder'])
+        is_decoder_block = all(substr in k for substr in ['decoder.block'])
+
+        if is_encoder or is_decoder_block:
+            del state_dict[k]
+    return state_dict

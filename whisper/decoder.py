@@ -126,12 +126,13 @@ class TextDecoder(nn.Module):
         self.token_embedding = nn.Embedding(n_vocab, n_state)
         self.positional_embedding = nn.Parameter(torch.empty(n_ctx, n_state))
 
-        self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
-            [
-                ResidualAttentionBlock(n_state, n_head, cross_attention=True)
-                for _ in range(n_layer)
-            ]
-        )
+        if not use_coreml:
+            self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
+                [
+                    ResidualAttentionBlock(n_state, n_head, cross_attention=True)
+                    for _ in range(n_layer)
+                ]
+            )
         self.ln = nn.LayerNorm(n_state)
         self.n_vocab = n_vocab
         self.n_state = n_state

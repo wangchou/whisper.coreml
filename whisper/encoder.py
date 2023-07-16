@@ -85,14 +85,15 @@ class AudioEncoder(nn.Module):
             self, n_mels: int, n_ctx: int, n_state: int, n_head: int, n_layer: int, use_coreml: bool, modelName
     ):
         super().__init__()
-        self.conv1 = nn.Conv1d(n_mels, n_state, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv1d(n_state, n_state, kernel_size=3, stride=2, padding=1)
-        self.register_buffer("positional_embedding", sinusoids(n_ctx, n_state))
+        if not use_coreml:
+            self.conv1 = nn.Conv1d(n_mels, n_state, kernel_size=3, padding=1)
+            self.conv2 = nn.Conv1d(n_state, n_state, kernel_size=3, stride=2, padding=1)
+            self.register_buffer("positional_embedding", sinusoids(n_ctx, n_state))
 
-        self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
-            [ResidualAttentionBlock(n_state, n_head) for _ in range(n_layer)]
-        )
-        self.ln_post = nn.LayerNorm(n_state, eps=1e-7)
+            self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
+                [ResidualAttentionBlock(n_state, n_head) for _ in range(n_layer)]
+            )
+            self.ln_post = nn.LayerNorm(n_state, eps=1e-7)
         self.coremlEncoder = None
         self.n_state = n_state
         self.n_layer = n_layer
