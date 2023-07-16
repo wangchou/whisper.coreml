@@ -151,7 +151,7 @@ class PyTorchInference(Inference):
         self.kv_modules = key_modules + value_modules
 
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
-        #startT = timer()
+        print("---", self.model.text_offset, "---")
         if tokens.shape[-1] > self.initial_token_length:
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
@@ -159,11 +159,14 @@ class PyTorchInference(Inference):
         if self.model.text_offset == 0:
             self.model.masked_kv_caches = None
 
+        startT = timer()
         output, cross_qks, new_mkv, new_ckv = self.model.decoder(tokens, audio_features,
                                                                  self.model.text_offset,
                                                                  self.model.isNewCKV,
                                                                  self.model.masked_kv_caches,
                                                                  self.model.cross_kv_caches)
+        print(f"Predict tooks {timer()-startT:.3f}")
+        startT = timer()
         n_ctx = tokens.shape[1]
         if n_ctx == 1 and self.model.text_offset > 0:
             self.model.isNewCKV = False # for coreml only
@@ -184,8 +187,7 @@ class PyTorchInference(Inference):
 
         self.model.text_offset += n_ctx
 
-
-        #print(f"PyTorchInference tooks {timer()-startT:.4f}")
+        print(f"Post predict tooks {timer()-startT:.3f}")
         return output, cross_qks
 
     def cleanup_caching(self):
@@ -194,6 +196,7 @@ class PyTorchInference(Inference):
         self.model.isNewCKV = True
 
     def rearrange_kv_cache(self, source_indices):
+        startT = timer()
         if source_indices != list(range(len(source_indices))):
             # numpy is faster than torch 0.0026 -> 0.0016
             np_array = self.model.masked_kv_caches.numpy()
@@ -201,6 +204,7 @@ class PyTorchInference(Inference):
                 # update the key/value cache to contain the selected sequences
                 np_array[i] = np_array[i][source_indices]
             self.model.masked_kv_caches = torch.from_numpy(np_array)
+        print(f"rearrange_kv_cache tooks {timer()-startT:.3f}")
 
 class SequenceRanker:
     def rank(
