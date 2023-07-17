@@ -22,7 +22,7 @@ class CoremlEncoder():
             self.encoderObj.loadModel(c_string, self.n_layer, self.n_state)
 
     def predictWith(self, melSegment):
-        startT = timer()
+        #startT = timer()
         if self.encoderObj == None:
             self.loadModel()
         self.encoderObj.predictWith.argtypes = [f32Ptr, f32Ptr]
@@ -36,7 +36,7 @@ class CoremlEncoder():
         output_floats = torch.ones((1, 1500, self.n_state), dtype=torch.float32).contiguous()
         output_floats_ptr = ctypes.cast(output_floats.data_ptr(), f32Ptr)
         self.encoderObj.predictWith(melSegmentDataPtr, output_floats_ptr)
-        print(f"\tcoreml encoder {timer()-startT:.3f}")
+        #print(f"\tcoreml encoder {timer()-startT:.3f}")
         return output_floats
 
     def closeModel(self):
@@ -82,7 +82,7 @@ class CoremlDecoder256():
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
 
     def predictWith(self, x, qk_mask, cross_kv_caches, isNewCKV):
-        startT = timer()
+        #startT = timer()
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
@@ -104,7 +104,7 @@ class CoremlDecoder256():
                                     xPtr, qkMaskPtr, ckvPtr,
                                     isNewCKV,
                                     self.outXPtr, self.outCHWPtr, self.outMKVPtr)
-        print(f"\tcoreml decoder256 {timer()-startT:.3f}")
+        #print(f"\tcoreml decoder256 {timer()-startT:.3f}")
 
         return self.out_x, self.out_cross_head_weights, self.new_masked_kv_caches
 
@@ -147,13 +147,27 @@ class CoremlDecoder():
             self.outXPtr = ctypes.cast(self.out_x.data_ptr(), f32Ptr)
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
 
-    def predictWith(self, x, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV):
-        startT = timer()
+    def rearrange_mkv(self, indices, text_offset):
+        #startT = timer()
+        if self.mlmodel_handle == None:
+            self.loadModel()
+        self.decoderObj.rearrange_mkv.argtypes = [POINTER(c_int), c_int]
+        self.decoderObj.rearrange_mkv.restypes = None
+        indices = indices.to(torch.int32).contiguous()
+        indicesPtr = ctypes.cast(indices.data_ptr(), POINTER(c_int))
+
+        # predict
+        self.decoderObj.rearrange_mkv(indicesPtr,
+                                      text_offset)
+        #print(f"\tcoreml decoder1 rearrange_mkv {timer()-startT:.3f}")
+
+    def predictWith(self, x, qk_mask, masked_kv_caches, cross_kv_caches, text_offset, isNewCKV):
+        #startT = timer()
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
                                                 f32Ptr, f32Ptr, f32Ptr, f32Ptr,
-                                                c_int, c_int, c_int, c_int, c_bool,
+                                                c_int, c_bool,
                                                 f32Ptr, f32Ptr]
         self.decoderObj.predictWith.restypes = None
 
@@ -170,9 +184,9 @@ class CoremlDecoder():
         # predict
         self.decoderObj.predictWith(self.mlmodel_handle,
                                     xPtr, qkMaskPtr, mkvPtr, ckvPtr,
-                                    self.n_layer, self.n_state, self.n_head, self.n_vocab, isNewCKV,
+                                    text_offset, isNewCKV,
                                     self.outXPtr, self.outMKVPtr)
-        print(f"\tcoreml decoder1 {timer()-startT:.3f}")
+        #print(f"\tcoreml decoder1 {timer()-startT:.3f}")
 
         return self.out_x, self.new_masked_kv_caches
 
@@ -210,7 +224,7 @@ class CoremlCrossKV():
             self.outCKVPtr = ctypes.cast(self.out_cross_kv_caches.data_ptr(), f32Ptr)
 
     def predictWith(self, xa):
-        startT = timer()
+        #startT = timer()
         if self.mlmodel_handle == None:
             self.loadModel()
         self.crossKVObj.predictWith.argtypes = [c_void_p,
@@ -229,7 +243,7 @@ class CoremlCrossKV():
                                     self.n_layer, self.n_state,
                                     self.outCKVPtr)
 
-        print(f"\tcoreml crossKV {timer()-startT:.3f}")
+        #print(f"\tcoreml crossKV {timer()-startT:.3f}")
         return self.out_cross_kv_caches
 
     def closeModel(self):

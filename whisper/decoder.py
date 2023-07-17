@@ -163,17 +163,13 @@ class TextDecoder(nn.Module):
         if self.use_coreml:
             if self.coremlCrossKV == None:
                 self.coremlCrossKV = CoremlCrossKV(self.n_layer, self.n_state, self.modelName)
-            result = self.coremlCrossKV.predictWith(xa)
-            if self.modelName == "large":
-                self.coremlCrossKV.closeModel()
-                self.coremlCrossKV = None
-            return result
-        else:
-            cross_kv_caches = []
-            for block in self.blocks:
-                cross_kv_caches.append(block.cross_attn.key(xa))
-                cross_kv_caches.append(block.cross_attn.value(xa))
-            return torch.cat(cross_kv_caches, dim=0).unsqueeze(1)
+            return self.coremlCrossKV.predictWith(xa)
+
+        cross_kv_caches = []
+        for block in self.blocks:
+            cross_kv_caches.append(block.cross_attn.key(xa))
+            cross_kv_caches.append(block.cross_attn.value(xa))
+        return torch.cat(cross_kv_caches, dim=0).unsqueeze(1)
 
     def forward(self, x: Tensor, xa: Tensor,
                 text_offset: Tensor,
@@ -192,7 +188,7 @@ class TextDecoder(nn.Module):
         x = x.to(xa.dtype)
 
         if text_offset == 0: # decoder256
-            self.cross_kv_caches = self.crossKVCaches(xa) if self.cross_kv_caches is None else self.cross_kv_caches
+            self.cross_kv_caches = self.crossKVCaches(xa) #if self.cross_kv_caches is None else self.cross_kv_caches
             max_n_ctx = self.max_n_ctx_for_1st
             qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf
@@ -217,9 +213,6 @@ class TextDecoder(nn.Module):
                     x = torch.cat([x, _x], dim=0)
                     new_masked_kv_caches = torch.cat([new_masked_kv_caches, _new_masked_kv_caches], dim=1)
 
-            if self.use_coreml and self.modelName == "large":
-                self.coremlDecoder256.closeModel()
-                self.coremlDecoder256 = None
             x = x.split(n_ctx, dim=1)[0]
             cross_qks = cross_qks.split(n_ctx, dim=1)[0]
             logits = (
@@ -234,7 +227,9 @@ class TextDecoder(nn.Module):
                                                               qk_mask,
                                                               masked_kv_caches,
                                                               self.cross_kv_caches,
-                                                              isNewCKV)
+                                                              text_offset,
+                                                              isNewCKV,
+                                                              )
             cross_qks = None
 
         return logits, cross_qks, new_masked_kv_caches
@@ -244,6 +239,7 @@ class TextDecoder(nn.Module):
                       qk_mask: Optional[Tensor] = None,
                       masked_kv_caches: Optional[Tensor] = None,
                       cross_kv_caches: Optional[Tensor] = None,
+                      text_offset: Optional[int] = None, # only for coremlDecoder1
                       isNewCKV: Optional[Tensor] = None, # only for coremlDecoder1
                       ):
 
@@ -253,7 +249,7 @@ class TextDecoder(nn.Module):
             if masked_kv_caches is not None and x.shape[1] == 1:
                 if self.coremlDecoder == None:
                     self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.n_vocab, self.modelName)
-                return self.coremlDecoder.predictWith(x, qk_mask, masked_kv_caches, cross_kv_caches, isNewCKV)
+                return self.coremlDecoder.predictWith(x, qk_mask, masked_kv_caches, cross_kv_caches, text_offset, isNewCKV)
 
             else:
                 if self.coremlDecoder256 == None:

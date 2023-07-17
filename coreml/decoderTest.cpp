@@ -51,7 +51,7 @@ int main() {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(decoder, // model
                 x, qk_mask, masked_kv_caches, cross_kv_caches, // input
-                n_layer, n_state, n_head, n_vocab, i==0, // context parameter
+                text_offset, i==0, // context parameter
                 out_x, out_new_masked_kv_caches // outputs
                 );
         chrono::steady_clock::time_point end = chrono::steady_clock::now();

@@ -60,6 +60,7 @@ class Whisper(nn.Module):
         self.register_buffer("alignment_heads", all_heads.to_sparse(), persistent=False)
         self.n_layer = dims.n_text_layer
         self.n_state = dims.n_text_state
+        self.use_coreml = use_coreml
 
         bs = 5
         self.text_offset = 0

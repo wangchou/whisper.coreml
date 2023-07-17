@@ -147,7 +147,7 @@ class PyTorchInference(Inference):
         self.n_text_layer = model.dims.n_text_layer
 
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
-        print("---", self.model.text_offset, "---")
+        #print("---", self.model.text_offset, "---")
         if tokens.shape[-1] > self.initial_token_length:
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
@@ -155,13 +155,13 @@ class PyTorchInference(Inference):
         if self.model.text_offset == 0:
             self.model.masked_kv_caches = None
 
-        startT = timer()
+        #startT = timer()
         output, cross_head_weights, new_mkv = self.model.decoder(tokens,
                                                                  audio_features,
                                                                  self.model.text_offset,
                                                                  self.model.isNewCKV,
                                                                  self.model.masked_kv_caches)
-        startT = timer()
+        #startT = timer()
         n_ctx = tokens.shape[1]
         if n_ctx == 1 and self.model.text_offset > 0:
             self.model.isNewCKV = False # for coreml only
@@ -181,28 +181,33 @@ class PyTorchInference(Inference):
 
         self.model.text_offset += n_ctx
 
-        print(f"Post predict tooks {timer()-startT:.3f}")
+        #print(f"Post predict tooks {timer()-startT:.3f}")
         return output, cross_head_weights
 
     def cleanup_caching(self):
         self.model.text_offset = 0
-        self.model.cross_kv_caches = None
         self.model.isNewCKV = True
+        #print("🐱🐱cleanup_caching")
 
     def rearrange_kv_cache(self, source_indices):
-        startT = timer()
-        if source_indices != list(range(len(source_indices))):
-            # numpy is faster than torch 26ms -> 16ms
-            text_offset = self.model.text_offset
-            np_array = self.model.masked_kv_caches.numpy()
-            # 16ms -> 5ms
-            np_array_part = np_array[:,:,:text_offset]
-            for i in range(0, self.n_text_layer * 2):
-                # update the key/value cache to contain the selected sequences
-                np_array_part[i] = np_array_part[i][source_indices]
-            np_array[:, :, :text_offset] = np_array_part
-            self.model.masked_kv_caches = torch.from_numpy(np_array)
-        print(f"rearrange_kv_cache tooks {timer()-startT:.3f}")
+        #startT = timer()
+        if not self.model.use_coreml or self.model.text_offset <= 3: # only after decoder256
+            if source_indices != list(range(len(source_indices))):
+                # numpy is faster than torch 26ms -> 16ms
+                text_offset = self.model.text_offset
+                np_array = self.model.masked_kv_caches.numpy()
+                np_array_part = np_array[:,:,:text_offset]
+                for i in range(0, self.n_text_layer * 2):
+                    # update the key/value cache to contain the selected sequences
+                    np_array_part[i] = np_array_part[i][source_indices]
+                np_array[:, :, :text_offset] = np_array_part
+                self.model.masked_kv_caches = torch.from_numpy(np_array)
+
+        if self.model.use_coreml and self.model.decoder.coremlDecoder != None:
+            source_indices = torch.from_numpy(np.array(source_indices))
+            self.model.decoder.coremlDecoder.rearrange_mkv(source_indices,
+                                                           self.model.text_offset)
+        #print(f"🦋🦋rearrange_kv_cache tooks {timer()-startT:.3f}")
 
 class SequenceRanker:
     def rank(
@@ -679,7 +684,7 @@ class DecodingTask:
         else:
             audio_features = self.model.encoder(mel)
             self.model.isNewCKV = True
-            #print("isNewCKV = True")
+            #print("👛👛 isNewCKV = True")
 
         if audio_features.dtype != (
             torch.float16 if self.options.fp16 else torch.float32
