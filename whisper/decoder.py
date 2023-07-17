@@ -119,7 +119,7 @@ class ResidualAttentionBlock(nn.Module):
 
 class TextDecoder(nn.Module):
     def __init__(
-            self, n_vocab: int, n_ctx: int, n_state: int, n_head: int, n_layer: int, use_coreml: bool, modelName
+            self, n_vocab: int, n_ctx: int, n_state: int, n_head: int, n_layer: int, use_coreml: bool, modelName: str
     ):
         super().__init__()
 
@@ -150,6 +150,14 @@ class TextDecoder(nn.Module):
         # max token len for first time = max_prefix_len(224) + sot_len(3)
         # not sure why... decoder227 is slower than decoder256
         self.max_n_ctx_for_1st = 256
+
+        # copyed from model, will used by word_timestamps
+        # use the last half layers for alignment by default; see `set_alignment_heads()` below
+        all_heads = torch.zeros(
+            n_layer, n_head, dtype=torch.bool
+        )
+        all_heads[n_layer // 2 :] = True
+        self.register_buffer("alignment_heads", all_heads.to_sparse(), persistent=False)
 
     def crossKVCaches(self, xa: Tensor):
         if self.use_coreml:
@@ -213,7 +221,7 @@ class TextDecoder(nn.Module):
                 self.coremlDecoder256.closeModel()
                 self.coremlDecoder256 = None
             x = x.split(n_ctx, dim=1)[0]
-            cross_qks = cross_qks.split(n_ctx, dim=2)[0]
+            cross_qks = cross_qks.split(n_ctx, dim=1)[0]
             logits = (
                 x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
             ).float()
@@ -249,11 +257,12 @@ class TextDecoder(nn.Module):
 
             else:
                 if self.coremlDecoder256 == None:
-                    self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head, self.modelName)
+                    n_alignment_head = self.alignment_heads.to_sparse().indices().shape[1]
+                    self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head, n_alignment_head, self.modelName)
                 return self.coremlDecoder256.predictWith(x, qk_mask, cross_kv_caches, isNewCKV)
         ############################
 
-        cross_qks = []
+        cross_head_weights = []
         new_masked_kv_caches = []
 
         # use two-levels split to reduce degree of edges in graph
@@ -282,11 +291,14 @@ class TextDecoder(nn.Module):
 
             x, cross_qk, new_mk, new_mv= block(x, qk_mask, mk, mv, ck, cv)
 
-            cross_qks.append(cross_qk)
+            # for word_timestamps
+            for head_idx in range(self.n_head):
+                if self.alignment_heads[layer_idx][head_idx]:
+                    cross_head_weights.append(cross_qk[0][head_idx])
             new_masked_kv_caches.append(new_mk)
             new_masked_kv_caches.append(new_mv)
 
-        cross_qks = torch.cat(cross_qks)
+        cross_head_weights = torch.stack(cross_head_weights)
         new_masked_kv_caches = torch.stack(new_masked_kv_caches)
 
         x = self.ln(x)
@@ -298,4 +310,4 @@ class TextDecoder(nn.Module):
 
             return logits, new_masked_kv_caches
         else: # decoder256 and decoder call from add timestamp
-            return x, cross_qks, new_masked_kv_caches
+            return x, cross_head_weights, new_masked_kv_caches

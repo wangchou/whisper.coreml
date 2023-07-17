@@ -56,6 +56,7 @@ class Whisper(nn.Module):
             self.dims.n_text_layer, self.dims.n_text_head, dtype=torch.bool
         )
         all_heads[self.dims.n_text_layer // 2 :] = True
+        self.modelName = modelName
         self.register_buffer("alignment_heads", all_heads.to_sparse(), persistent=False)
         self.n_layer = dims.n_text_layer
         self.n_state = dims.n_text_state
@@ -74,6 +75,23 @@ class Whisper(nn.Module):
             self.dims.n_text_layer, self.dims.n_text_head
         )
         self.register_buffer("alignment_heads", mask.to_sparse(), persistent=False)
+        self.decoder.alignment_heads = mask
+        # alignment_heads count
+        #print(f"alignment_heads item count for {self.modelName} 👓 ", mask.to_sparse().indices().shape[1])
+        """
+        n_alignment_head = {"tiny.en": 8,
+                            "tiny": 6,
+                            "base.en": ,
+                            "base": 8,
+                            "small.en": 19,
+                            "small": 10,
+                            "medium.en": ,
+                            "medium": 6,
+                            "large-v1": ,
+                            "large-v2": 23,
+                            "large": 23,
+                            }
+        """
 
 # unuse funcs called??
 #    def embed_audio(self, mel: torch.Tensor):

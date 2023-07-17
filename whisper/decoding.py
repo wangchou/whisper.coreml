@@ -156,11 +156,11 @@ class PyTorchInference(Inference):
             self.model.masked_kv_caches = None
 
         startT = timer()
-        output, cross_qks, new_mkv = self.model.decoder(tokens,
-                                                        audio_features,
-                                                        self.model.text_offset,
-                                                        self.model.isNewCKV,
-                                                        self.model.masked_kv_caches)
+        output, cross_head_weights, new_mkv = self.model.decoder(tokens,
+                                                                 audio_features,
+                                                                 self.model.text_offset,
+                                                                 self.model.isNewCKV,
+                                                                 self.model.masked_kv_caches)
         startT = timer()
         n_ctx = tokens.shape[1]
         if n_ctx == 1 and self.model.text_offset > 0:
@@ -182,7 +182,7 @@ class PyTorchInference(Inference):
         self.model.text_offset += n_ctx
 
         print(f"Post predict tooks {timer()-startT:.3f}")
-        return output, cross_qks
+        return output, cross_head_weights
 
     def cleanup_caching(self):
         self.model.text_offset = 0

@@ -48,10 +48,11 @@ class CoremlEncoder():
 
 ########################################
 class CoremlDecoder256():
-    def __init__(self, n_layer: int, n_state: int, n_head: int, modelName):
+    def __init__(self, n_layer: int, n_state: int, n_head: int, n_alignment_head: int, modelName: str):
         self.n_layer = n_layer
         self.n_state = n_state
         self.n_head = n_head
+        self.n_alignment_head = n_alignment_head
         self.modelName = modelName
         self.decoderObj = None
         self.mlmodel_handle = None
@@ -59,24 +60,25 @@ class CoremlDecoder256():
     def loadModel(self):
         if self.mlmodel_handle == None:
             self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoder256Wrapper.so')
-            self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int]
+            self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int, c_int]
             self.decoderObj.loadModel.restype = c_void_p
             c_string = bytes(f'./coreml/{self.modelName}/CoremlDecoder256.mlmodelc', 'ascii')
-            self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head)
+            self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head, self.n_alignment_head)
 
             bs = 1 # beam_size
             n_head = self.n_head # tiny=6, base=8, small=12, medium=16, large=20
             n_state = self.n_state
             n_layer = self.n_layer
+            n_alignment_head = self.n_alignment_head
             max_n_ctx = 256
 
             dtype1=torch.float32
             # prepare output buffers
             self.out_x = torch.ones((bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
-            self.out_cross_qks = torch.ones((n_layer * bs, n_head, max_n_ctx, 1500), dtype=dtype1).contiguous()
+            self.out_cross_head_weights = torch.ones((n_alignment_head, max_n_ctx, 1500), dtype=dtype1).contiguous()
             self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, max_n_ctx, n_state), dtype=dtype1).contiguous()
             self.outXPtr = ctypes.cast(self.out_x.data_ptr(), f32Ptr)
-            self.outCQKPtr = ctypes.cast(self.out_cross_qks.data_ptr(), f32Ptr)
+            self.outCHWPtr = ctypes.cast(self.out_cross_head_weights.data_ptr(), f32Ptr)
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
 
     def predictWith(self, x, qk_mask, cross_kv_caches, isNewCKV):
@@ -85,7 +87,7 @@ class CoremlDecoder256():
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
                                                 f32Ptr, f32Ptr, f32Ptr,
-                                                c_int, c_int, c_int, c_bool,
+                                                c_bool,
                                                 f32Ptr, f32Ptr, f32Ptr]
         self.decoderObj.predictWith.restypes = None
 
@@ -100,11 +102,11 @@ class CoremlDecoder256():
         # predict
         self.decoderObj.predictWith(self.mlmodel_handle,
                                     xPtr, qkMaskPtr, ckvPtr,
-                                    self.n_layer, self.n_state, self.n_head, isNewCKV,
-                                    self.outXPtr, self.outCQKPtr, self.outMKVPtr)
+                                    isNewCKV,
+                                    self.outXPtr, self.outCHWPtr, self.outMKVPtr)
         print(f"\tcoreml decoder256 {timer()-startT:.3f}")
 
-        return self.out_x, self.out_cross_qks, self.new_masked_kv_caches
+        return self.out_x, self.out_cross_head_weights, self.new_masked_kv_caches
 
     def closeModel(self):
         if self.mlmodel_handle != None:

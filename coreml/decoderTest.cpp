@@ -56,6 +56,7 @@ int main() {
                 );
         chrono::steady_clock::time_point end = chrono::steady_clock::now();
         cout << "decoder1 " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << ", isNewCKV=" << (i==0) << endl;
+        cout << "---" << endl;
     }
 
     // it should match pytorch output:

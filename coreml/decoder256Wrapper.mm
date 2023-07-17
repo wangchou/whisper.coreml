@@ -13,18 +13,27 @@ MLMultiArray *inCkv;
 
 // output arrays
 MLMultiArray *outX;
-MLMultiArray *outQKs;
+MLMultiArray *outCHW; // cross_head_weights
 MLMultiArray *outMKV;
 
 bool isPredicted = false;
 bool isModelLoaded = false;
 
+int _n_layer;
+int _n_state;
+int _n_head;
+int _n_alignment_head;
+
 #if __cplusplus
 extern "C" {
 #endif
 
-const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head) {
+const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head, int n_alignment_head) {
     CFTimeInterval startT = CACurrentMediaTime();
+    _n_layer = n_layer;
+    _n_state = n_state;
+    _n_head = n_head;
+    _n_alignment_head = n_alignment_head;
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isModelLoaded) {
         NSLog(@"loading %@", modelPathStr);
@@ -47,7 +56,7 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     inCkv = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
 
     outX = getPixelBufferArray3(1, max_n_ctx, n_state);
-    outQKs = getPixelBufferArray4(n_layer, n_head, max_n_ctx, 1500);
+    outCHW = getPixelBufferArray3(n_alignment_head, max_n_ctx, 1500);
     outMKV = getPixelBufferArray4(n_layer*2, 1, max_n_ctx, n_state);
     if (!isModelLoaded) {
         NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
@@ -61,21 +70,18 @@ void predictWith(
     float* x, // (1, 256, n_state)
     float* qk_mask, // (256, 256)
     float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
-    int n_layer,
-    int n_state,
-    int n_head,
     bool isNewCKV,
     float* out_x,
-    float* out_cross_qks,
+    float* out_cross_head_weights,
     float* out_new_masked_kv_caches
 ) {
     //CFTimeInterval startT = CACurrentMediaTime();
 
     // input arrays
-    float32ToFloat16(x, (uint16*)inX.dataPointer, 1 * 256 * n_state);
+    float32ToFloat16(x, (uint16*)inX.dataPointer, 1 * 256 * _n_state);
     float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 256 * 256);
     if (isNewCKV) {
-        float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 1 * 1500 * n_state);
+        float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, _n_layer * 2 * 1 * 1500 * _n_state);
     }
     //NSLog(@"1 %.3f", CACurrentMediaTime() - startT);
 
@@ -85,7 +91,7 @@ void predictWith(
 
     NSDictionary *outputBackings = @{
         @"out_x":outX,
-        @"out_cross_qks":outQKs,
+        @"out_cross_head_weights":outCHW,
         @"out_new_masked_kv_caches":outMKV,
     };
     [options setOutputBackings:outputBackings];
@@ -101,18 +107,18 @@ void predictWith(
 
     float16ToFloat32((uint16*)outX.dataPointer, out_x, outX.count);
 
-    uint16* fromPtr = (uint16*)outQKs.dataPointer;
-    float* toPtr = out_cross_qks;
+    uint16* fromPtr = (uint16*)outCHW.dataPointer;
+    float* toPtr = out_cross_head_weights;
     // ane fp16 output is aligned with 64 bytes or 32 element of fp16
     // 1500 is not multiple of 32 => ane appends 4 of zeors to 1504
-    //showStrides(outQKs);
-    int outQKsStride = [outQKs.strides[2] intValue];
+    //showStrides(outCHW);
+    int outCHWStride = [outCHW.strides[1] intValue];
 
     // This for loop is extramely slow, for small model
     // decoder256Test takes 57ms, this takes 11ms
-    for(int i=0; i<n_layer * n_head * 256; i++) {
+    for(int i=0; i<_n_alignment_head * 256; i++) {
         float16ToFloat32(fromPtr, toPtr, 1500);
-        fromPtr += outQKsStride;
+        fromPtr += outCHWStride;
         toPtr += 1500;
     }
 
@@ -120,7 +126,7 @@ void predictWith(
 
     if (!isPredicted) {
         unlock(outX);
-        unlock(outQKs);
+        unlock(outCHW);
         unlock(outMKV);
         isPredicted = true;
     }
@@ -133,7 +139,7 @@ void closeModel(const void* model) {
     CFRelease(inCkv.pixelBuffer);
 
     CFRelease(outX.pixelBuffer);
-    CFRelease(outQKs.pixelBuffer);
+    CFRelease(outCHW.pixelBuffer);
     CFRelease(outMKV.pixelBuffer);
     isModelLoaded = false;
     isPredicted = false;

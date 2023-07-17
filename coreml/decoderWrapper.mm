@@ -71,7 +71,7 @@ void predictWith(
     float* out_x,
     float* out_new_masked_kv_caches
 ) {
-    //CFTimeInterval startT = CACurrentMediaTime();
+    CFTimeInterval startT = CACurrentMediaTime();
 
     // input arrays
     float32ToFloat16(x, (uint16*)inX.dataPointer, 5 * n_state);
@@ -81,6 +81,8 @@ void predictWith(
     if (isNewCKV) {
         float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, n_layer * 2 * 1 * 1500 * n_state);
     }
+    NSLog(@"\tinput fp32->fp16  %.4f", CACurrentMediaTime() - startT);
+    startT = CACurrentMediaTime();
 
     CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX qk_mask:inQk_mask masked_kv_caches:inMkv cross_kv_caches:inCkv];
 
@@ -100,6 +102,8 @@ void predictWith(
     if(error) {
         NSLog(@"%@", error);
     }
+    NSLog(@"\tpredict           %.4f", CACurrentMediaTime() - startT);
+    startT = CACurrentMediaTime();
 
     // ane fp16 output is aligned with 64 bytes or 32 element of fp16
     // 51865 is not multiple of 32 => ane appends zeors to 51872
@@ -114,6 +118,8 @@ void predictWith(
     }
 
     float16ToFloat32((uint16*)outMKV.dataPointer, out_new_masked_kv_caches, outMKV.count);
+    NSLog(@"\toutput fp16->fp32 %.4f", CACurrentMediaTime() - startT);
+
     if (!isPredicted) {
         unlock(outX);
         unlock(outMKV);

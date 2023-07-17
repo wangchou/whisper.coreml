@@ -192,8 +192,7 @@ def find_alignment(
     #]
 
     with torch.no_grad():
-        output, cross_qks = model(mel.unsqueeze(0), tokens.unsqueeze(0))
-        QKs = [cross_qks[l] for l in range(cross_qks.shape[0])]
+        output, cross_head_weights = model(mel.unsqueeze(0), tokens.unsqueeze(0))
         logits = output[0]
         sampled_logits = logits[len(tokenizer.sot_sequence) :, : tokenizer.eot]
         token_probs = sampled_logits.softmax(dim=-1)
@@ -204,7 +203,7 @@ def find_alignment(
     #    hook.remove()
 
     # heads * tokens * frames
-    weights = torch.stack([QKs[l][h] for l, h in model.alignment_heads.indices().T])
+    weights = cross_head_weights
     weights = weights[:, :, : num_frames // 2]
     weights = (weights * qk_scale).softmax(dim=-1)
     std, mean = torch.std_mean(weights, dim=-2, keepdim=True, unbiased=False)
