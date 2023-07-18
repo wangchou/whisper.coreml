@@ -36,7 +36,7 @@ class MultiHeadAttention(nn.Module):
         # decoder1:   (5,    1, 384)
         # decoder256: (1,  256, 384), force bs=1 for speedup conversion
 
-        q = self.query(x) * self.qk_scale
+        q = self.query(x) * self.qk_scale # multiply count: 5 * 64^2 * n_head^2|0.2M * n_head
         k = self.key(x)
         v = self.value(x)
 
@@ -52,9 +52,17 @@ class MultiHeadAttention(nn.Module):
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
         qk = q @ k + qk_mask
+        # decoder1   masked [5, 12,   1, 64] @ [5, 12, 64,  449] = [5, 12,   1,  449]   5 *  449 * 64^2 * n_head
+        # decoder1   cross  [5, 12,   1, 64] @ [1, 12, 64, 1500] = [5, 12,   1, 1500]   5 * 1500 * 64^2 * n_head|30M * n_head
+        # decoder256 masked [1, 12, 256, 64] @ [1, 12, 64,  256] = [1, 12, 256,  256] 256 *  256 * 64^2 * n_head
+        # decoder256 cross  [1, 12, 256, 64] @ [1, 12, 64, 1500] = [1, 12, 256, 1500] 256 * 1500 * 64^2 * n_head
 
         w = qk.softmax(dim=-1).to(q.dtype)
         wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
+        # decoder1   masked [5, 12,   1,  449] @ [5, 12,  449, 64] = [5, 12,   1, 64] 5 * 64 *  449^2 * n_head
+        # decoder1   cross  [5, 12,   1, 1500] @ [1, 12, 1500, 64] = [5, 12,   1, 64] 5 * 64 * 1500^2 * n_head|720M * n_head
+        # decoder256 masked [1, 12, 256,  256] @ [1, 12,  256, 64] = [1, 12, 256, 64] 1 * 64 *  256^2 * n_head
+        # decoder256 cross  [1, 12, 256, 1500] @ [1, 12, 1500, 64] = [1, 12, 256, 64] 1 * 64 * 1500^2 * n_head
 
         return self.out(wv), new_k, new_v
 
