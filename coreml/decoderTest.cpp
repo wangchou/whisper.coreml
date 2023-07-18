@@ -55,7 +55,7 @@ int main() {
                 out_x, out_new_masked_kv_caches // outputs
                 );
         chrono::steady_clock::time_point end = chrono::steady_clock::now();
-        cout << "decoder1 " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << ", isNewCKV=" << (i==0) << endl;
+        cout << "decoder1 " << chrono::duration_cast<std::chrono::microseconds>(end - begin).count()/1000.0 << "[ms]" << ", isNewCKV=" << (i==0) << endl;
         cout << "---" << endl;
     }
 
