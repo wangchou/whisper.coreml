@@ -7,8 +7,8 @@
 extern "C" {
 #endif
 
-void float32ToFloat16(const float* fp32, uint16* fp16, int count);
-void float16ToFloat32(const uint16* fp16, float* fp32, int count);
+void float32ToMa(const float* fp32, MLMultiArray* ma);
+void maToFloat32(MLMultiArray* ma, const float* fp32);
 void unlock(MLMultiArray* ma);
 void showStrides(MLMultiArray* ma);
 CVPixelBufferRef getPixelBuffer(int dim1, int dim2);

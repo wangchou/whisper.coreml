@@ -11,7 +11,8 @@
 MLMultiArray *inX;
 MLMultiArray *inQk_mask;
 MLMultiArray *inMkv;
-MLMultiArray *inCkv;
+MLMultiArray *inCk;
+MLMultiArray *inCv;
 
 // output arrays
 MLMultiArray *outX;
@@ -52,10 +53,12 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     }
 
     // input arrays
+    n_head = n_state/64;
     inX = getPixelBufferArray3(5, 1, n_state);
     inQk_mask = getPixelBufferArray2(1, 449);
     inMkv = getPixelBufferArray4(n_layer*2, 5, 448, n_state);
-    inCkv = getPixelBufferArray4(n_layer*2, 1, 1500, n_state);
+    inCk = getPixelBufferArray4(n_layer, n_head, 64, 1500);
+    inCv = getPixelBufferArray4(n_layer, n_head, 1500, 64);
 
     // output arrays
     outX = getPixelBufferArray3(5, 1, n_vocab);
@@ -87,7 +90,6 @@ void rearrange_mkv(int* indices, int text_offset) {
 
     int bsStride = 448 * _n_state;
     for(int layer_i=0; layer_i < _n_layer * 2; layer_i++) {
-
         // copy to tmp buffer
         for(int bs=0; bs<5; bs++) {
             uint16* srcPtr = layerPtr + bs * bsStride;
@@ -114,7 +116,8 @@ void predictWith(
     float* x, // (bs, 1, n_state)
     float* qk_mask, // (1, 449)
     float* masked_kv_caches, // (n_layer * 2, bs, 448, n_state)
-    float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
+    float* cross_k_caches,
+    float* cross_v_caches,
     int text_offset,
     bool isNewCKV,
     float* out_x,
@@ -123,17 +126,18 @@ void predictWith(
     //CFTimeInterval startT = CACurrentMediaTime();
 
     // input arrays
-    float32ToFloat16(x, (uint16*)inX.dataPointer, 5 * _n_state);
-    float32ToFloat16(qk_mask, (uint16*)inQk_mask.dataPointer, 449);
+    float32ToMa(x, inX);
+    float32ToMa(qk_mask, inQk_mask);
 
     if (isNewCKV) {
-        float32ToFloat16(masked_kv_caches, (uint16*)inMkv.dataPointer, _n_layer * 2 * 5 * 448 * _n_state);
-        float32ToFloat16(cross_kv_caches, (uint16*)inCkv.dataPointer, _n_layer * 2 * 1 * 1500 * _n_state);
+        float32ToMa(masked_kv_caches, inMkv);
+        float32ToMa(cross_k_caches, inCk);
+        float32ToMa(cross_v_caches, inCv);
     }
     //NSLog(@"\tinput fp32->fp16  %.4f", CACurrentMediaTime() - startT);
     //startT = CACurrentMediaTime();
 
-    CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX qk_mask:inQk_mask masked_kv_caches:inMkv cross_kv_caches:inCkv];
+    CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX qk_mask:inQk_mask masked_kv_caches:inMkv cross_k_caches:inCk cross_v_caches:inCv];
 
     MLPredictionOptions* options = [MLPredictionOptions alloc];
 
@@ -153,24 +157,13 @@ void predictWith(
     }
     //NSLog(@"\tpredict           %.4f", CACurrentMediaTime() - startT);
     //startT = CACurrentMediaTime();
+    maToFloat32(outX, out_x);
 
-    // ane fp16 output is aligned with 64 bytes or 32 element of fp16
-    // 51865 is not multiple of 32 => ane appends zeors to 51872
-    //showStrides(outX);
-    uint16* fromPtr = (uint16*)outX.dataPointer;
-    float* toPtr = out_x;
-    int outXStride = [outX.strides[0] intValue];
-    for(int bs=0; bs<5; bs++) {
-        float16ToFloat32(fromPtr, toPtr, _n_vocab);
-        fromPtr += outXStride;
-        toPtr += _n_vocab;
-    }
+    maToFloat32(outMKV, out_new_masked_kv_caches);
 
-    float16ToFloat32((uint16*)outMKV.dataPointer, out_new_masked_kv_caches, outMKV.count);
-
+    // mkv[:, :, text_offset] = new_mkv
     // inMkv:  (n_layer * 2) * 5 * 448 * n_state
     // outMKV: (n_layer * 2) * 5 *   1 * n_state
-    // mkv[:, :, text_offset] = new_mkv
     uint16 *dstPtr = (uint16*)inMkv.dataPointer + (text_offset * _n_state);
     uint16 *srcPtr = (uint16*)outMKV.dataPointer;
     int dstStride = 448 * _n_state;
@@ -194,7 +187,8 @@ void closeModel(const void* model) {
     CFRelease(model);
     CFRelease(inX.pixelBuffer);
     CFRelease(inQk_mask.pixelBuffer);
-    CFRelease(inCkv.pixelBuffer);
+    CFRelease(inCk.pixelBuffer);
+    CFRelease(inCv.pixelBuffer);
 
     CFRelease(outX.pixelBuffer);
     CFRelease(outMKV.pixelBuffer);

@@ -42,7 +42,8 @@ int main() {
     float* x = getOnes(bs * n_state); // (bs, 1, n_state)
     float* qk_mask = getOnes(449); // (1, 449)
     float* masked_kv_caches = getOnes( n_layer * 2 * bs * 448 * n_state); // (n_layer * 2, 1, 448, n_state)
-    float* cross_kv_caches =  getOnes( n_layer * 2 * 1 * 1500 * n_state);// (n_layer * 2, 1, 1500, n_state)
+    float* cross_k_caches =  getOnes( n_layer * 1 * 1500 * n_state);
+    float* cross_v_caches =  getOnes( n_layer * 1 * 1500 * n_state);
 
     float* out_x = getOnes(bs * n_vocab); // (bs, 1, n_state)
     float* out_new_masked_kv_caches = getOnes( n_layer * 2 * bs * 1 * n_state); // (n_layer * 2, bs, 1, n_state)
@@ -50,7 +51,7 @@ int main() {
     for(int i=0; i<5; i++) {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(decoder, // model
-                x, qk_mask, masked_kv_caches, cross_kv_caches, // input
+                x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches,// input
                 text_offset, i==0, // context parameter
                 out_x, out_new_masked_kv_caches // outputs
                 );

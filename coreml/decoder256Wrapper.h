@@ -8,7 +8,8 @@ void predictWith(
     const void* model,
     float* x, // (1, 256, n_state)
     float* qk_mask, // (256, 256)
-    float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
+    float* cross_k_caches, // (n_layer, n_head, 64, 1500)
+    float* cross_v_caches, // (n_layer, n_head, 1500, 64)
     bool isNewCKV,
     float* out_x, // (1, 256, n_state)
     float* out_cross_head_weights, // (n__alignment_head, 256, 1500)

@@ -65,16 +65,8 @@ void predictWith(float* melSegment, float* encoderOutput) {
     for(int model_idx=0; model_idx < model_count; model_idx++) {
         MLMultiArray* inputArray;
 
-        //showStrides(arrayMelSegment);
         if(model_idx==0) {
-            // fp32 to fp16
-            float* fromPtr = melSegment;
-            uint16* toPtr = (uint16*)arrayMelSegment.dataPointer;
-            for(int i=0; i<80; i++) {
-                float32ToFloat16(fromPtr, toPtr, 3000);
-                fromPtr += 3000;
-                toPtr += 3008; // ane last dim are 64bytes aligned
-            }
+            float32ToMa(melSegment, arrayMelSegment);
             inputArray = arrayMelSegment;
         } else {
             inputArray = arrayX;
@@ -91,7 +83,7 @@ void predictWith(float* melSegment, float* encoderOutput) {
         }
     }
 
-    float16ToFloat32((uint16*)arrayX.dataPointer, encoderOutput, arrayX.count);
+    maToFloat32(arrayX, encoderOutput);
     if (!isPredicted) {
         unlock(arrayX);
         unlock(arrayMelSegment);

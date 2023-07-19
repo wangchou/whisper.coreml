@@ -1,6 +1,6 @@
 #import "coremlUtility.h"
 
-void float32ToFloat16(const float* fp32, uint16* fp16, int count) {
+void float32ToFloat16(const float* fp32, const uint16* fp16, int count) {
     vImage_Buffer fp32Buffer = { (void *)fp32, 1, UInt(count), count * 4 };
     vImage_Buffer fp16Buffer = { (void *)fp16, 1, UInt(count), count * 2 };
 
@@ -11,11 +11,54 @@ void float32ToFloat16(const float* fp32, uint16* fp16, int count) {
     //NSLog(@"fp32tofp16 count=%d, time %.3f", count, CACurrentMediaTime() - startT);
 }
 
-void float16ToFloat32(const uint16* fp16, float* fp32, int count) {
+void float16ToFloat32(const uint16* fp16, const float* fp32, int count) {
     vImage_Buffer fp16Buffer = { (void *)fp16, 1, UInt(count), count * 2 };
     vImage_Buffer fp32Buffer = { (void *)fp32, 1, UInt(count), count * 4 };
     if (vImageConvert_Planar16FtoPlanarF(&fp16Buffer, &fp32Buffer, 0) != kvImageNoError) {
         printf("float16toFloat32 error");
+    }
+}
+
+void float32ToMa(const float* fp32, MLMultiArray* ma) {
+    int n_dim = ma.shape.count;
+    int maStride = [ma.strides[n_dim-2] intValue];
+    int fp32Stride = [ma.shape[n_dim-1] intValue];
+    bool isAligned = maStride == fp32Stride;
+
+    uint16* fp16 = (uint16*) ma.dataPointer;
+    if (isAligned) {
+        float32ToFloat16(fp32, fp16, ma.count);
+        return;
+    }
+
+    int sliceCount = ma.count / fp32Stride;
+    float* _fp32 = (float*) fp32;
+    for(int i=0; i<sliceCount; i++) {
+        float32ToFloat16(_fp32, fp16, fp32Stride);
+        _fp32 += fp32Stride;
+        fp16 += maStride;
+    }
+}
+
+void maToFloat32(MLMultiArray* ma, const float* fp32) {
+    int n_dim = ma.shape.count;
+    int maStride = [ma.strides[n_dim-2] intValue];
+    int fp32Stride = [ma.shape[n_dim-1] intValue];
+    bool isAligned = maStride == fp32Stride;
+
+    uint16* fp16 = (uint16*) ma.dataPointer;
+    if (isAligned) {
+        float16ToFloat32(fp16, fp32, ma.count);
+        return;
+    }
+
+    int sliceCount = ma.count / fp32Stride;
+    int fp16Stride = maStride;
+    float* _fp32 = (float*) fp32;
+    for(int i=0; i<sliceCount; i++) {
+        float16ToFloat32(fp16, _fp32, fp32Stride);
+        _fp32 += fp32Stride;
+        fp16 += maStride;
     }
 }
 
@@ -33,6 +76,9 @@ void showStrides(MLMultiArray* ma) {
     NSLog(@"count %ld %f", ma.count, ma.count / [ma.strides[0] floatValue]);
     for(int i=0; i<ma.strides.count; i++) {
         NSLog(@"stride %d %@", i, ma.strides[i]);
+    }
+    for(int i=0; i<ma.shape.count; i++) {
+        NSLog(@"shape %d %@", i, ma.shape[i]);
     }
 }
 

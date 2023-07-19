@@ -16,6 +16,7 @@ model = whisper.load_model(modelName).cpu()
 modelSize = modelName.split(".")[0]
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
 n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
+n_head = n_state//64
 
 decoder = model.decoder
 decoder.eval()
@@ -31,12 +32,14 @@ bs = 1 # beam_size
 max_n_ctx = decoder.max_n_ctx_for_1st
 x = torch.ones((bs, max_n_ctx, n_state))
 qk_mask = torch.zeros((max_n_ctx, max_n_ctx))
-cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state))
+cross_k_caches = torch.ones((n_layer, n_head, 64, 1500))
+cross_v_caches = torch.ones((n_layer, n_head, 1500, 64))
 
 traced_decoder = torch.jit.trace_module(decoder,
                                         {'forwardBlocks': {"x":x,
                                                            "qk_mask": qk_mask,
-                                                           "cross_kv_caches": cross_kv_caches}
+                                                           "cross_k_caches": cross_k_caches,
+                                                           "cross_v_caches": cross_v_caches}
                                         },
                                         example_inputs_is_kwarg=True)
 # ct.convert only look forward func
@@ -45,8 +48,9 @@ traced_decoder.forward = traced_decoder.forwardBlocks
 # input types for convert
 input1 = ct.TensorType("x", x.shape, dtype=inType)
 input2 = ct.TensorType("qk_mask", qk_mask.shape, dtype=inType)
-input3 = ct.TensorType("cross_kv_caches", cross_kv_caches.shape, dtype=inType)
-inputs = [input1, input2, input3]
+input3 = ct.TensorType("cross_k_caches", cross_k_caches.shape, dtype=inType)
+input4 = ct.TensorType("cross_v_caches", cross_v_caches.shape, dtype=inType)
+inputs = [input1, input2, input3, input4]
 
 outputs = [ct.TensorType("out_x", dtype=outType),
            ct.TensorType("out_cross_head_weights", dtype=outType),

@@ -10,7 +10,8 @@ void predictWith(
     float* x, // (bs, 1, n_state)
     float* qk_mask, // (1, 449)
     float* masked_kv_caches, // (n_layer * 2, bs, 448, n_state)
-    float* cross_kv_caches, // (n_layer * 2, 1, 1500, n_state)
+    float* cross_k_caches, // (n_layer, n_head, 64, 1500)
+    float* cross_v_caches, // (n_layer, n_head, 1500, 64)
     int text_offset,
     bool isNewCKV,
     float* out_x, // (bs, 1, n_state)

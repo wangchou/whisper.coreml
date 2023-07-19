@@ -42,7 +42,8 @@ traced_decoder.forward = traced_decoder.crossKVCaches
 input1 = ct.TensorType("xa", xa.shape, dtype=inType)
 inputs = [input1]
 
-outputs = [ct.TensorType("out_cross_kv_caches", dtype=outType)]
+outputs = [ct.TensorType("out_cross_k_caches", dtype=outType),
+           ct.TensorType("out_cross_v_caches", dtype=outType),]
 
 startT = timer()
 decoder = ct.convert(

@@ -43,7 +43,8 @@ int main() {
 
     float* x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
     float* qk_mask = getOnes(max_n_ctx * max_n_ctx); // (256, 256)
-    float* cross_kv_caches = getOnes(n_layer * 2 * 1 * 1500 * n_state);// (n_layer * 2, bs, 1500, n_state)
+    float* cross_k_caches = getOnes(n_layer * 1500 * n_state);
+    float* cross_v_caches = getOnes(n_layer * 1500 * n_state);
 
     float* out_x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
     float* out_cross_head_weights = getOnes(n_alignment_head * max_n_ctx * 1500);
@@ -52,7 +53,7 @@ int main() {
     for(int i=0; i<5; i++) {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(decoder, // model
-                x, qk_mask, cross_kv_caches,// input
+                x, qk_mask, cross_k_caches, cross_v_caches,// input
                 i==0, // context parameter
                 out_x, out_cross_head_weights, out_new_masked_kv_caches // outputs
                 );

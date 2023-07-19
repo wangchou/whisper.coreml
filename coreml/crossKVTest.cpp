@@ -23,21 +23,23 @@ int main() {
 
     float* xa = getOnes(1 * 1500 * n_state);
 
-    float* out_cross_kv_caches = getOnes( n_layer * 2 * 1 * 1500 * n_state);
+    float* out_cross_k_caches = getOnes( n_layer * 1500 * n_state);
+    float* out_cross_v_caches = getOnes( n_layer * 1500 * n_state);
 
     for(int i=0; i<5; i++) {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
         predictWith(crossKV, // model
                 xa,
-                n_layer, n_state,
-                out_cross_kv_caches // outputs
+                out_cross_k_caches, // outputs
+                out_cross_v_caches // outputs
                 );
         chrono::steady_clock::time_point end = chrono::steady_clock::now();
-        cout << "decoder1 " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << ", isNewCKV=" << (i==0) << endl;
+        cout << "crossKV " << chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << ", isNewCKV=" << (i==0) << endl;
     }
 
     for(int bs=0; bs<5; bs++) {
-        cout << " " << out_cross_kv_caches[0] << " " << out_cross_kv_caches[1] << endl;
+        cout << " " << out_cross_k_caches[0] << " " << out_cross_k_caches[1] << endl;
+        cout << " " << out_cross_v_caches[0] << " " << out_cross_v_caches[1] << endl;
     }
     closeModel(crossKV);
 }

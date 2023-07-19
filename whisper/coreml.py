@@ -81,12 +81,12 @@ class CoremlDecoder256():
             self.outCHWPtr = ctypes.cast(self.out_cross_head_weights.data_ptr(), f32Ptr)
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
 
-    def predictWith(self, x, qk_mask, cross_kv_caches, isNewCKV):
+    def predictWith(self, x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV):
         #startT = timer()
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
-                                                f32Ptr, f32Ptr, f32Ptr,
+                                                f32Ptr, f32Ptr, f32Ptr, f32Ptr,
                                                 c_bool,
                                                 f32Ptr, f32Ptr, f32Ptr]
         self.decoderObj.predictWith.restypes = None
@@ -96,12 +96,14 @@ class CoremlDecoder256():
         xPtr = ctypes.cast(x.data_ptr(), f32Ptr)
         qk_mask = qk_mask.contiguous()
         qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), f32Ptr)
-        cross_kv_caches = cross_kv_caches.contiguous()
-        ckvPtr = ctypes.cast(cross_kv_caches.data_ptr(), f32Ptr)
+        cross_k_caches = cross_k_caches.contiguous()
+        ckPtr = ctypes.cast(cross_k_caches.data_ptr(), f32Ptr)
+        cross_v_caches = cross_v_caches.contiguous()
+        cvPtr = ctypes.cast(cross_v_caches.data_ptr(), f32Ptr)
 
         # predict
         self.decoderObj.predictWith(self.mlmodel_handle,
-                                    xPtr, qkMaskPtr, ckvPtr,
+                                    xPtr, qkMaskPtr, ckPtr, cvPtr,
                                     isNewCKV,
                                     self.outXPtr, self.outCHWPtr, self.outMKVPtr)
         #print(f"\tcoreml decoder256 {timer()-startT:.3f}")
@@ -161,12 +163,12 @@ class CoremlDecoder():
                                       text_offset)
         #print(f"\tcoreml decoder1 rearrange_mkv {timer()-startT:.3f}")
 
-    def predictWith(self, x, qk_mask, masked_kv_caches, cross_kv_caches, text_offset, isNewCKV):
+    def predictWith(self, x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV):
         #startT = timer()
         if self.mlmodel_handle == None:
             self.loadModel()
         self.decoderObj.predictWith.argtypes = [c_void_p,
-                                                f32Ptr, f32Ptr, f32Ptr, f32Ptr,
+                                                f32Ptr, f32Ptr, f32Ptr, f32Ptr, f32Ptr,
                                                 c_int, c_bool,
                                                 f32Ptr, f32Ptr]
         self.decoderObj.predictWith.restypes = None
@@ -178,12 +180,14 @@ class CoremlDecoder():
         qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), f32Ptr)
         masked_kv_caches = masked_kv_caches.contiguous()
         mkvPtr = ctypes.cast(masked_kv_caches.data_ptr(), f32Ptr)
-        cross_kv_caches = cross_kv_caches.contiguous()
-        ckvPtr = ctypes.cast(cross_kv_caches.data_ptr(), f32Ptr)
+        cross_k_caches = cross_k_caches.contiguous()
+        ckPtr = ctypes.cast(cross_k_caches.data_ptr(), f32Ptr)
+        cross_v_caches = cross_v_caches.contiguous()
+        cvPtr = ctypes.cast(cross_v_caches.data_ptr(), f32Ptr)
 
         # predict
         self.decoderObj.predictWith(self.mlmodel_handle,
-                                    xPtr, qkMaskPtr, mkvPtr, ckvPtr,
+                                    xPtr, qkMaskPtr, mkvPtr, ckPtr, cvPtr,
                                     text_offset, isNewCKV,
                                     self.outXPtr, self.outMKVPtr)
         #print(f"\tcoreml decoder1 {timer()-startT:.3f}")
@@ -217,11 +221,14 @@ class CoremlCrossKV():
 
             n_state = self.n_state
             n_layer = self.n_layer
+            n_head = n_state//64
 
             dtype1=torch.float32
             # prepare output buffers
-            self.out_cross_kv_caches = torch.ones((n_layer * 2, 1, 1500, n_state), dtype=dtype1).contiguous()
-            self.outCKVPtr = ctypes.cast(self.out_cross_kv_caches.data_ptr(), f32Ptr)
+            self.out_cross_k_caches = torch.ones((n_layer, n_head, 64, 1500), dtype=dtype1).contiguous()
+            self.outCKPtr = ctypes.cast(self.out_cross_k_caches.data_ptr(), f32Ptr)
+            self.out_cross_v_caches = torch.ones((n_layer, n_head, 1500, 64), dtype=dtype1).contiguous()
+            self.outCVPtr = ctypes.cast(self.out_cross_v_caches.data_ptr(), f32Ptr)
 
     def predictWith(self, xa):
         #startT = timer()
@@ -229,8 +236,7 @@ class CoremlCrossKV():
             self.loadModel()
         self.crossKVObj.predictWith.argtypes = [c_void_p,
                                                 f32Ptr,
-                                                c_int, c_int,
-                                                f32Ptr]
+                                                f32Ptr, f32Ptr]
         self.crossKVObj.predictWith.restypes = None
 
         # prepare inputs
@@ -240,11 +246,11 @@ class CoremlCrossKV():
         # predict
         self.crossKVObj.predictWith(self.mlmodel_handle,
                                     xaPtr,
-                                    self.n_layer, self.n_state,
-                                    self.outCKVPtr)
+                                    self.outCKPtr, self.outCVPtr)
 
         #print(f"\tcoreml crossKV {timer()-startT:.3f}")
-        return self.out_cross_kv_caches
+        return self.out_cross_k_caches, self.out_cross_v_caches
+
 
     def closeModel(self):
         if self.mlmodel_handle != None:
