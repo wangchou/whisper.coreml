@@ -83,8 +83,6 @@ class CrossMultiHeadAttention(MultiHeadAttention):
             q = q.view(5, self.n_head, 1, 64)
         else:
             q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
-        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1)
-        v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
         qk = q @ k
         # decoder1   cross  [5, 12,   1, 64] @ [1, 12, 64, 1500] = [5, 12,   1, 1500]   5 * 1500 * 64^2 * n_head|30M * n_head
@@ -185,11 +183,17 @@ class TextDecoder(nn.Module):
                 self.coremlCrossKV = CoremlCrossKV(self.n_layer, self.n_state, self.modelName)
             return self.coremlCrossKV.predictWith(xa)
 
-        cross_kv_caches = []
+        cross_k_caches = []
+        cross_v_caches = []
         for block in self.blocks:
-            cross_kv_caches.append(block.cross_attn.key(xa))
-            cross_kv_caches.append(block.cross_attn.value(xa))
-        return torch.cat(cross_kv_caches, dim=0).unsqueeze(1)
+            k = block.cross_attn.key(xa)
+            k = k.view(*k.shape[:2], self.n_head, 64).permute(0, 2, 3, 1)
+            cross_k_caches.append(k) #[1, 12, 64, 1500]
+
+            v = block.cross_attn.value(xa)
+            v = v.view(*v.shape[:2], self.n_head, 64).permute(0, 2, 1, 3)
+            cross_v_caches.append(v) #[1, 12, 1500, 64]
+        return torch.cat(cross_k_caches, dim=0), torch.cat(cross_v_caches, dim=0)
 
     def forward(self, x: Tensor, xa: Tensor,
                 text_offset: Tensor,
@@ -208,7 +212,7 @@ class TextDecoder(nn.Module):
         x = x.to(xa.dtype)
 
         if text_offset == 0: # decoder256
-            self.cross_kv_caches = self.crossKVCaches(xa) #if self.cross_kv_caches is None else self.cross_kv_caches
+            self.cross_k_caches, self.cross_v_caches = self.crossKVCaches(xa) #if self.cross_kv_caches is None else self.cross_kv_caches
             max_n_ctx = self.max_n_ctx_for_1st
             qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf
@@ -223,7 +227,8 @@ class TextDecoder(nn.Module):
                 _x, _cross_qks, _new_masked_kv_caches = self.forwardBlocks(x_bs[bs_idx],
                                                                            qk_mask,
                                                                            masked_kv_caches,
-                                                                           self.cross_kv_caches,
+                                                                           self.cross_k_caches,
+                                                                           self.cross_v_caches,
                                                                            isNewCKV=(bs_idx==0))
                 if bs_idx == 0:
                     x = _x
@@ -246,7 +251,8 @@ class TextDecoder(nn.Module):
             logits, new_masked_kv_caches = self.forwardBlocks(x,
                                                               qk_mask,
                                                               masked_kv_caches,
-                                                              self.cross_kv_caches,
+                                                              self.cross_k_caches,
+                                                              self.cross_v_caches,
                                                               text_offset,
                                                               isNewCKV,
                                                               )
@@ -258,7 +264,8 @@ class TextDecoder(nn.Module):
                       x: Tensor,
                       qk_mask: Optional[Tensor] = None,
                       masked_kv_caches: Optional[Tensor] = None,
-                      cross_kv_caches: Optional[Tensor] = None,
+                      cross_k_caches: Optional[Tensor] = None,
+                      cross_v_caches: Optional[Tensor] = None,
                       text_offset: Optional[int] = None, # only for coremlDecoder1
                       isNewCKV: Optional[Tensor] = None, # only for coremlDecoder1
                       ):
@@ -269,13 +276,13 @@ class TextDecoder(nn.Module):
             if masked_kv_caches is not None and x.shape[1] == 1:
                 if self.coremlDecoder == None:
                     self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.n_vocab, self.modelName)
-                return self.coremlDecoder.predictWith(x, qk_mask, masked_kv_caches, cross_kv_caches, text_offset, isNewCKV)
+                return self.coremlDecoder.predictWith(x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV)
 
             else:
                 if self.coremlDecoder256 == None:
                     n_alignment_head = self.alignment_heads.to_sparse().indices().shape[1]
                     self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head, n_alignment_head, self.modelName)
-                return self.coremlDecoder256.predictWith(x, qk_mask, cross_kv_caches, isNewCKV)
+                return self.coremlDecoder256.predictWith(x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV)
         ############################
 
         cross_head_weights = []
@@ -287,10 +294,13 @@ class TextDecoder(nn.Module):
             mkv_caches = []
             for split8 in masked_kv_caches.split(8):
                 mkv_caches += split8.split(1)
-        if cross_kv_caches is not None:
-            ckv_caches = []
-            for split8 in cross_kv_caches.split(8):
-                ckv_caches += split8.split(1)
+        if cross_k_caches is not None:
+            ck_caches = []
+            for split4 in cross_k_caches.split(4):
+                ck_caches += split4.split(1)
+            cv_caches = []
+            for split4 in cross_v_caches.split(4):
+                cv_caches += split4.split(1)
 
         for layer_idx, block in enumerate(self.blocks):
             #if layer_idx >= 4:
@@ -301,9 +311,9 @@ class TextDecoder(nn.Module):
                 mk = mkv_caches[layer_idx*2].squeeze(0)
                 mv = mkv_caches[layer_idx*2 + 1].squeeze(0)
 
-            if cross_kv_caches is not None:
-                ck = ckv_caches[layer_idx*2].squeeze(0)
-                cv = ckv_caches[layer_idx*2 + 1].squeeze(0)
+            if cross_k_caches is not None:
+                ck = ck_caches[layer_idx]
+                cv = cv_caches[layer_idx]
 
             x, cross_qk, new_mk, new_mv= block(x, qk_mask, mk, mv, ck, cv)
 
