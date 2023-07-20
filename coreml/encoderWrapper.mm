@@ -95,9 +95,9 @@ void closeModel() {
     for(int model_idx=0; model_idx < model_count; model_idx++) {
         CFRelease(models[model_idx]);
     }
-    //Release(options);
     CFRelease(arrayMelSegment.pixelBuffer);
     CFRelease(arrayX.pixelBuffer);
+    options = nil;
     isModelLoaded = false;
     isPredicted = false;
 }

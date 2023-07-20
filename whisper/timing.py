@@ -54,7 +54,7 @@ def median_filter(x: torch.Tensor, filter_width: int):
     return result
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, cache=True)
 def backtrace(trace: np.ndarray):
     i = trace.shape[0] - 1
     j = trace.shape[1] - 1
@@ -79,7 +79,7 @@ def backtrace(trace: np.ndarray):
     return result[::-1, :].T
 
 
-@numba.jit(nopython=True, parallel=True)
+@numba.jit(nopython=True, parallel=True, cache=True)
 def dtw_cpu(x: np.ndarray):
     N, M = x.shape
     cost = np.ones((N + 1, M + 1), dtype=np.float32) * np.inf
