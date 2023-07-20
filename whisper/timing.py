@@ -164,7 +164,6 @@ def find_alignment(
     model: "Whisper",
     tokenizer: Tokenizer,
     text_tokens: List[int],
-    mel: torch.Tensor,
     num_frames: int,
     *,
     medfilt_width: int = 7,
@@ -182,17 +181,8 @@ def find_alignment(
         ]
     ).to(model.device)
 
-    # install hooks on the cross attention layers to retrieve the attention weights
-    #QKs = [None] * model.dims.n_text_layer
-    #hooks = [
-    #    block.cross_attn.register_forward_hook(
-    #        lambda _, ins, outs, index=i: QKs.__setitem__(index, outs[1][0])
-    #    )
-    #    for i, block in enumerate(model.decoder.blocks)
-    #]
-
     with torch.no_grad():
-        output, cross_head_weights = model(mel.unsqueeze(0), tokens.unsqueeze(0))
+        output, cross_head_weights = model(tokens.unsqueeze(0))
         logits = output[0]
         sampled_logits = logits[len(tokenizer.sot_sequence) :, : tokenizer.eot]
         token_probs = sampled_logits.softmax(dim=-1)
@@ -273,7 +263,6 @@ def add_word_timestamps(
     segments: List[dict],
     model: "Whisper",
     tokenizer: Tokenizer,
-    mel: torch.Tensor,
     num_frames: int,
     prepend_punctuations: str = "\"'“¿([{-",
     append_punctuations: str = "\"'.。,，!！?？:：”)]}、",
@@ -289,7 +278,7 @@ def add_word_timestamps(
     ]
 
     text_tokens = list(itertools.chain.from_iterable(text_tokens_per_segment))
-    alignment = find_alignment(model, tokenizer, text_tokens, mel, num_frames, **kwargs)
+    alignment = find_alignment(model, tokenizer, text_tokens, num_frames, **kwargs)
     word_durations = np.array([t.end - t.start for t in alignment])
     word_durations = word_durations[word_durations.nonzero()]
     median_duration = np.median(word_durations) if len(word_durations) > 0 else 0.0

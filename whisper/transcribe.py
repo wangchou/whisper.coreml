@@ -322,7 +322,6 @@ def transcribe(
                     segments=current_segments,
                     model=model,
                     tokenizer=tokenizer,
-                    mel=mel_segment,
                     num_frames=segment_size,
                     prepend_punctuations=prepend_punctuations,
                     append_punctuations=append_punctuations,

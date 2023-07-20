@@ -195,7 +195,8 @@ class TextDecoder(nn.Module):
             cross_v_caches.append(v) #[1, 12, 1500, 64]
         return torch.cat(cross_k_caches, dim=0), torch.cat(cross_v_caches, dim=0)
 
-    def forward(self, x: Tensor, xa: Tensor,
+    def forward(self, x: Tensor,
+                xa: Optional[Tensor],
                 text_offset: Tensor,
                 isNewCKV: Tensor,
                 masked_kv_caches: Optional[Tensor] = None):
@@ -209,10 +210,11 @@ class TextDecoder(nn.Module):
         n_batch, n_ctx = x.shape
 
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
-        x = x.to(xa.dtype)
+        x = x
 
         if text_offset == 0: # decoder256
-            self.cross_k_caches, self.cross_v_caches = self.crossKVCaches(xa) #if self.cross_kv_caches is None else self.cross_kv_caches
+            if xa is not None:
+                self.cross_k_caches, self.cross_v_caches = self.crossKVCaches(xa)
             max_n_ctx = self.max_n_ctx_for_1st
             qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf

@@ -107,14 +107,15 @@ class Whisper(nn.Module):
 #        self.cross_kv_caches = new_cross_kv_caches
 #        return output, cross_qks
 
+    # this only called by add_word_timestamps, after cross_kv_caches is calculated
     def forward(
-        self, mel: torch.Tensor, tokens: torch.Tensor
+        self, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
         #startT = timer()
         if self.text_offset == 0:
             self.masked_kv_caches = None
         output, cross_qks, new_masked_kv_caches = self.decoder(tokens,
-                                                               self.encoder(mel),
+                                                               None, # xa = None => use previous caches
                                                                self.text_offset,
                                                                self.isNewCKV,
                                                                self.masked_kv_caches)
