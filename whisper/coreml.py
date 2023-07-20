@@ -6,6 +6,14 @@ import ctypes
 import torch
 
 f32Ptr = POINTER(c_float)
+logPredictTime = False
+
+totalLoadTime = 0
+totalEncoderTime = 0
+totalDecoder1Time = 0
+totalDecoder256Time = 0
+totalCrossKVTime = 0
+
 class CoremlEncoder():
     def __init__(self, n_layer: int, n_state: int, modelName):
         self.n_layer = n_layer
@@ -14,17 +22,21 @@ class CoremlEncoder():
         self.encoderObj = None
 
     def loadModel(self):
+        global totalLoadTime
+        startT = timer()
         if self.encoderObj == None:
             self.encoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/encoderWrapper.so')
             self.encoderObj.loadModel.argtypes = [c_char_p, c_int, c_int]
             self.encoderObj.loadModel.restype = None
             c_string = bytes(f'./coreml/{self.modelName}', 'ascii')
             self.encoderObj.loadModel(c_string, self.n_layer, self.n_state)
+        totalLoadTime += timer()-startT
 
     def predictWith(self, melSegment):
-        #startT = timer()
+        global totalEncoderTime
         if self.encoderObj == None:
             self.loadModel()
+        startT = timer()
         self.encoderObj.predictWith.argtypes = [f32Ptr, f32Ptr]
         self.encoderObj.predictWith.restypes = None
 
@@ -36,7 +48,9 @@ class CoremlEncoder():
         output_floats = torch.ones((1, 1500, self.n_state), dtype=torch.float32).contiguous()
         output_floats_ptr = ctypes.cast(output_floats.data_ptr(), f32Ptr)
         self.encoderObj.predictWith(melSegmentDataPtr, output_floats_ptr)
-        #print(f"\tcoreml encoder {timer()-startT:.3f}")
+        if logPredictTime:
+            print(f"\tcoreml encoder {timer()-startT:.3f}")
+        totalEncoderTime += timer() - startT
         return output_floats
 
     def closeModel(self):
@@ -58,6 +72,8 @@ class CoremlDecoder256():
         self.mlmodel_handle = None
 
     def loadModel(self):
+        global totalLoadTime
+        startT = timer()
         if self.mlmodel_handle == None:
             self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoder256Wrapper.so')
             self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int, c_int]
@@ -80,11 +96,13 @@ class CoremlDecoder256():
             self.outXPtr = ctypes.cast(self.out_x.data_ptr(), f32Ptr)
             self.outCHWPtr = ctypes.cast(self.out_cross_head_weights.data_ptr(), f32Ptr)
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
+        totalLoadTime += timer()-startT
 
     def predictWith(self, x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV):
-        #startT = timer()
+        global totalDecoder256Time
         if self.mlmodel_handle == None:
             self.loadModel()
+        startT = timer()
         self.decoderObj.predictWith.argtypes = [c_void_p,
                                                 f32Ptr, f32Ptr, f32Ptr, f32Ptr,
                                                 c_bool,
@@ -106,8 +124,10 @@ class CoremlDecoder256():
                                     xPtr, qkMaskPtr, ckPtr, cvPtr,
                                     isNewCKV,
                                     self.outXPtr, self.outCHWPtr, self.outMKVPtr)
-        #print(f"\tcoreml decoder256 {timer()-startT:.3f}")
+        if logPredictTime:
+            print(f"\tcoreml decoder256 {timer()-startT:.3f}")
 
+        totalDecoder256Time += timer()-startT
         return self.out_x, self.out_cross_head_weights, self.new_masked_kv_caches
 
     def closeModel(self):
@@ -131,6 +151,8 @@ class CoremlDecoder():
         self.mlmodel_handle = None
 
     def loadModel(self):
+        global totalLoadTime
+        startT = timer()
         if self.mlmodel_handle == None:
             self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoderWrapper.so')
             self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int, c_int, c_int]
@@ -150,11 +172,14 @@ class CoremlDecoder():
             self.new_masked_kv_caches = torch.ones((n_layer * 2, bs, 1, n_state), dtype=dtype1).contiguous()
             self.outXPtr = ctypes.cast(self.out_x.data_ptr(), f32Ptr)
             self.outMKVPtr = ctypes.cast(self.new_masked_kv_caches.data_ptr(), f32Ptr)
+        totalLoadTime += timer()-startT
 
     def rearrange_mkv(self, indices, text_offset):
-        #startT = timer()
+        global totalDecoder1Time
         if self.mlmodel_handle == None:
             self.loadModel()
+        #if logPredictTime:
+        #    startT = timer()
         self.decoderObj.rearrange_mkv.argtypes = [POINTER(c_int), c_int]
         self.decoderObj.rearrange_mkv.restypes = None
         indices = indices.to(torch.int32).contiguous()
@@ -163,12 +188,14 @@ class CoremlDecoder():
         # predict
         self.decoderObj.rearrange_mkv(indicesPtr,
                                       text_offset)
-        #print(f"\tcoreml decoder1 rearrange_mkv {timer()-startT:.3f}")
+        #if logPredictTime:
+        #    print(f"\tcoreml decoder1 rearrange_mkv {timer()-startT:.3f}")
 
     def predictWith(self, x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV):
-        #startT = timer()
+        global totalDecoder1Time
         if self.mlmodel_handle == None:
             self.loadModel()
+        startT = timer()
         self.decoderObj.predictWith.argtypes = [c_void_p,
                                                 f32Ptr, f32Ptr, f32Ptr, f32Ptr, f32Ptr,
                                                 c_int, c_bool,
@@ -192,8 +219,10 @@ class CoremlDecoder():
                                     xPtr, qkMaskPtr, mkvPtr, ckPtr, cvPtr,
                                     text_offset, isNewCKV,
                                     self.outXPtr, self.outMKVPtr)
-        #print(f"\tcoreml decoder1 {timer()-startT:.3f}")
+        if logPredictTime:
+            print(f"\tcoreml decoder1 {timer()-startT:.3f}")
 
+        totalDecoder1Time += timer() - startT
         return self.out_x, self.new_masked_kv_caches
 
     def closeModel(self):
@@ -214,6 +243,8 @@ class CoremlCrossKV():
         self.mlmodel_handle = None
 
     def loadModel(self):
+        global totalLoadTime
+        startT = timer()
         if self.mlmodel_handle == None:
             self.crossKVObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/crossKVWrapper.so')
             self.crossKVObj.loadModel.argtypes = [c_char_p, c_int, c_int]
@@ -231,11 +262,13 @@ class CoremlCrossKV():
             self.outCKPtr = ctypes.cast(self.out_cross_k_caches.data_ptr(), f32Ptr)
             self.out_cross_v_caches = torch.ones((n_layer, n_head, 1500, 64), dtype=dtype1).contiguous()
             self.outCVPtr = ctypes.cast(self.out_cross_v_caches.data_ptr(), f32Ptr)
+        totalLoadTime += timer()-startT
 
     def predictWith(self, xa):
-        #startT = timer()
+        global totalCrossKVTime
         if self.mlmodel_handle == None:
             self.loadModel()
+        startT = timer()
         self.crossKVObj.predictWith.argtypes = [c_void_p,
                                                 f32Ptr,
                                                 f32Ptr, f32Ptr]
@@ -250,7 +283,9 @@ class CoremlCrossKV():
                                     xaPtr,
                                     self.outCKPtr, self.outCVPtr)
 
-        #print(f"\tcoreml crossKV {timer()-startT:.3f}")
+        if logPredictTime:
+            print(f"\tcoreml crossKV {timer()-startT:.3f}")
+        totalCrossKVTime += timer()-startT
         return self.out_cross_k_caches, self.out_cross_v_caches
 
 
@@ -263,3 +298,21 @@ class CoremlCrossKV():
             self.mlmodel_handle = None
 
 ########################################
+
+def showCoremlPredictTime():
+    global totalLoadTime
+    global totalEncoderTime
+    global totalDecoder1Time
+    global totalDecoder256Time
+    global totalCrossKVTime
+    print("--- coreml load -----------------")
+    print(f"\ttotal load time    {totalLoadTime:.3f}s")
+    print("--- coreml predict --------------")
+    print(f"\ttotalEncoder       {totalEncoderTime:.3f}s")
+    print(f"\ttotalCrossKV       {totalCrossKVTime:.3f}s")
+    print(f"\ttotalDecoder256    {totalDecoder256Time:.3f}s")
+    print(f"\ttotalDecoder1      {totalDecoder1Time:.3f}s")
+    print(f"\t---")
+    print(f"\ttotal predict time {totalEncoderTime+totalCrossKVTime+totalDecoder1Time+totalDecoder256Time:.3f}s")
+    print("---------------------------------")
+

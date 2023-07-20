@@ -28,6 +28,7 @@ from .utils import (
     optional_int,
     str2bool,
 )
+from .coreml import showCoremlPredictTime
 
 if TYPE_CHECKING:
     from .model import Whisper
@@ -463,6 +464,8 @@ def cli():
         startT = timer()
         result = transcribe(model, audio_path, temperature=temperature, **args)
         print(f"---\ntotal time on transcribe(): {timer() - startT: .3f}\n")
+        if use_coreml:
+            showCoremlPredictTime()
         writer(result, audio_path, writer_args)
 
 
