@@ -33,11 +33,11 @@ int main() {
     // small model
     int n_layer = 12;
     int n_state = 768;
-    int bs = 5;
+    int bs = 1;
     int n_head = 12; // tiny=6, base=8, small=12, medium=16, large=20
     int text_offset = 10; // only for test
     int n_vocab = 51865; //multi-lang: 51865, en only: 51864
-    const void* decoder = loadModel("./small/CoremlDecoder.mlmodelc", n_layer, n_state, n_head, n_vocab);
+    const void* decoder = loadModel("./small/CoremlDecoder.mlmodelc", n_layer, n_state, n_head, n_vocab, bs);
 
     float* x = getOnes(bs * n_state); // (bs, 1, n_state)
     float* qk_mask = getOnes(449); // (1, 449)

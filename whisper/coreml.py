@@ -120,11 +120,12 @@ class CoremlDecoder256():
 
 ########################################
 class CoremlDecoder():
-    def __init__(self, n_layer: int, n_state: int, n_head: int, n_vocab: int, modelName):
+    def __init__(self, n_layer: int, n_state: int, n_head: int, n_vocab: int, bs: int, modelName):
         self.n_layer = n_layer
         self.n_state = n_state
         self.n_head = n_head
         self.n_vocab = n_vocab
+        self.bs = bs
         self.modelName = modelName
         self.decoderObj = None
         self.mlmodel_handle = None
@@ -132,15 +133,16 @@ class CoremlDecoder():
     def loadModel(self):
         if self.mlmodel_handle == None:
             self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoderWrapper.so')
-            self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int, c_int]
+            self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int, c_int, c_int]
             self.decoderObj.loadModel.restype = c_void_p
             c_string = bytes(f'./coreml/{self.modelName}/CoremlDecoder.mlmodelc', 'ascii')
-            self.mlmodel_handle = self.decoderObj.loadModel(c_string, self.n_layer, self.n_state, self.n_head, self.n_vocab)
-
-            bs = 5 # beam_size
+            bs = self.bs # beam_size
             n_head = self.n_head # tiny=6, base=8, small=12, medium=16, large=20
             n_state = self.n_state
             n_layer = self.n_layer
+            n_vocab = self.n_vocab
+            self.mlmodel_handle = self.decoderObj.loadModel(c_string, n_layer, n_state, n_head, n_vocab, bs)
+
 
             dtype1=torch.float32
             # prepare output buffers

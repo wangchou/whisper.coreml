@@ -12,6 +12,8 @@ print("--------------")
 
 # model setting
 modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
+bs = int(sys.argv[2]) if len(sys.argv) > 2 else 1 # beam search size
+
 model = whisper.load_model(modelName).cpu()
 modelSize = modelName.split(".")[0]
 n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
@@ -26,11 +28,8 @@ inType=np.float16
 # https://github.com/apple/coremltools/issues/1893
 outType=np.float16
 
-bs = 5 # beam_size
-
 # input data for trace
 x = torch.ones((bs, 1, n_state))
-xa = torch.ones((1, 1500, n_state))
 qk_mask = torch.zeros((1,449))
 masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state))
 cross_k_caches = torch.ones((n_layer, n_head, 64, 1500))
@@ -69,7 +68,7 @@ decoder = ct.convert(
     minimum_deployment_target=ct.target.iOS16, # make fp16 input and output available
     #skip_model_load=True,
 )
-print(f"{modelName} decoder1 conversion time: {timer()-startT:.3f}s")
+print(f"{modelName} bs={bs} decoder1 conversion time: {timer()-startT:.3f}s")
 
 folder_path = f"coreml/{modelName}"
 if not os.path.exists(folder_path):

@@ -24,19 +24,21 @@ int _n_layer;
 int _n_state;
 int _n_head;
 int _n_vocab;
+int bs = 1;
 
-uint16* tmpMKV[5]; // (5, 448, n_state)
+uint16* tmpMKV[5]; // (bs, 448, n_state)
 
 #if __cplusplus
 extern "C" {
 #endif
 
-const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab) {
+const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab, int beam_size) {
     CFTimeInterval startT = CACurrentMediaTime();
     _n_layer = n_layer;
     _n_state = n_state;
     _n_head = n_head;
     _n_vocab = n_vocab;
+    bs = beam_size;
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isModelLoaded) {
         NSLog(@"loading %@", modelPathStr);
@@ -54,19 +56,19 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
 
     // input arrays
     n_head = n_state/64;
-    inX = getPixelBufferArray3(5, 1, n_state);
+    inX = getPixelBufferArray3(bs, 1, n_state);
     inQk_mask = getPixelBufferArray2(1, 449);
-    inMkv = getPixelBufferArray4(n_layer*2, 5, 448, n_state);
+    inMkv = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
     inCk = getPixelBufferArray4(n_layer, n_head, 64, 1500);
     inCv = getPixelBufferArray4(n_layer, n_head, 1500, 64);
 
     // output arrays
-    outX = getPixelBufferArray3(5, 1, n_vocab);
-    outMKV = getPixelBufferArray4(n_layer*2, 5, 1, n_state);
+    outX = getPixelBufferArray3(bs, 1, n_vocab);
+    outMKV = getPixelBufferArray4(n_layer*2, bs, 1, n_state);
 
     // tmpMKV for rearrange_mkv
-    for(int bs=0; bs<5; bs++) {
-        tmpMKV[bs] = (uint16*) malloc(448 * n_state * sizeof(uint16));
+    for(int bi=0; bi<bs; bi++) {
+        tmpMKV[bi] = (uint16*) malloc(448 * n_state * sizeof(uint16));
     }
 
     if (!isModelLoaded) {
@@ -91,23 +93,23 @@ void rearrange_mkv(int* indices, int text_offset) {
     int bsStride = 448 * _n_state;
     for(int layer_i=0; layer_i < _n_layer * 2; layer_i++) {
         // copy to tmp buffer
-        for(int bs=0; bs<5; bs++) {
-            uint16* srcPtr = layerPtr + bs * bsStride;
-            uint16* dstPtr = indices[bs] == bs ? srcPtr : tmpMKV[bs];
+        for(int bi=0; bi<bs; bi++) {
+            uint16* srcPtr = layerPtr + bi * bsStride;
+            uint16* dstPtr = indices[bi] == bi ? srcPtr : tmpMKV[bi];
             if (srcPtr != dstPtr) {
                 memcpy(dstPtr, srcPtr, copyCount * sizeof(uint16));
             }
-            copyed_ptr[bs] = dstPtr;
+            copyed_ptr[bi] = dstPtr;
         }
         // copy from tmpBuffer back to origin
-        for(int bs=0; bs<5; bs++) {
-            uint16* srcPtr = copyed_ptr[indices[bs]];
-            uint16* dstPtr = layerPtr + bs * bsStride;
+        for(int bi=0; bi<bs; bi++) {
+            uint16* srcPtr = copyed_ptr[indices[bi]];
+            uint16* dstPtr = layerPtr + bi * bsStride;
             if (srcPtr != dstPtr) {
                 memcpy(dstPtr, srcPtr, copyCount * sizeof(uint16));
             }
         }
-        layerPtr += 5 * 448 * _n_state;
+        layerPtr += bs * 448 * _n_state;
     }
 }
 
@@ -162,13 +164,13 @@ void predictWith(
     maToFloat32(outMKV, out_new_masked_kv_caches);
 
     // mkv[:, :, text_offset] = new_mkv
-    // inMkv:  (n_layer * 2) * 5 * 448 * n_state
-    // outMKV: (n_layer * 2) * 5 *   1 * n_state
+    // inMkv:  (n_layer * 2) * bs * 448 * n_state
+    // outMKV: (n_layer * 2) * bs *   1 * n_state
     uint16 *dstPtr = (uint16*)inMkv.dataPointer + (text_offset * _n_state);
     uint16 *srcPtr = (uint16*)outMKV.dataPointer;
     int dstStride = 448 * _n_state;
     int srcStride = _n_state;
-    for(int i=0; i < _n_layer*2*5; i++) {
+    for(int i=0; i < _n_layer*2*bs; i++) {
         memcpy(dstPtr + i * dstStride,
                srcPtr + i * srcStride,
                _n_state * sizeof(uint16));
@@ -192,7 +194,7 @@ void closeModel(const void* model) {
 
     CFRelease(outX.pixelBuffer);
     CFRelease(outMKV.pixelBuffer);
-    for(int i=0; i<5; i++) {
+    for(int i=0; i<bs; i++) {
         free(tmpMKV[i]);
     }
 

@@ -1,14 +1,15 @@
 #!/bin/bash
-if [[ $# -gt 0 ]]
+if [[ $# -gt 1 ]]
   then
       echo ""
   else
-      echo please provide model size like tiny, small, large...
+      echo please provide model size and beam_size
+      echo example: ./convert_coreml.sh small 1
       exit
 fi
 
 python convert_encoder.py $1
-python convert_decoder.py $1
+python convert_decoder.py $1 $2
 python convert_decoder256.py $1
 python convert_ckv.py $1
 
@@ -26,7 +27,7 @@ echo "-----------"
 echo "🦊 Usage 🦊"
 echo "-----------"
 # Known constraints:
-# 1. --beam_size and --best_of is fixed to 5
+# 1. fixed beam_size
 # 2. specifying --language is required
-# 3. make sure sample_len < (256-3) when using whisper.DecodingOptions
-echo "python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=5 --best_of=5 --word_timestamps=True --use_coreml=True"
+# 3. make sure sample_len < (256-3) when using whisper.DecodingOptions (whisper default is 224)
+echo "python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=$2 --best_of=$2 --word_timestamps=True --use_coreml=True"

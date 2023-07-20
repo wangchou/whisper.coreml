@@ -33,10 +33,10 @@ class MultiHeadAttention(nn.Module):
         cache_v: Optional[Tensor] = None,
     ):
         # x_shape
-        # decoder1:   (5,    1, 384)
+        # decoder1:   (bs,    1, 384)
         # decoder256: (1,  256, 384), force bs=1 for speedup conversion
 
-        q = self.query(x) * self.qk_scale # multiply count: 5 * 64^2 * n_head^2|0.2M * n_head
+        q = self.query(x) * self.qk_scale # multiply count: bs * 64^2 * n_head^2|0.2M * n_head
         k = self.key(x)
         v = self.value(x)
 
@@ -47,7 +47,7 @@ class MultiHeadAttention(nn.Module):
             k = torch.cat([cache_k, k], dim=1)
             v = torch.cat([cache_v, v], dim=1)
 
-        if x.shape[0] == 5: # decoder1
+        if x.shape[1] == 1: # decoder1
             q = q.view(q.shape[0], self.n_head, 1, 64)
         else:
             q = q.view(*q.shape[:2], self.n_head, 64).permute(0, 2, 1, 3)
@@ -55,16 +55,16 @@ class MultiHeadAttention(nn.Module):
         v = v.view(*v.shape[:2], self.n_head, 64).permute(0, 2, 1, 3)
 
         qk = q @ k + qk_mask
-        # decoder1   masked [5, 12,   1, 64] @ [5, 12, 64,  449] = [5, 12,   1,  449]   5 *  449 * 64^2 * n_head
-        # decoder256 masked [1, 12, 256, 64] @ [1, 12, 64,  256] = [1, 12, 256,  256] 256 *  256 * 64^2 * n_head
+        # decoder1   masked [bs, 12,   1, 64] @ [bs, 12, 64,  449] = [bs, 12,   1,  449]  bs *  449 * 64^2 * n_head
+        # decoder256 masked [ 1, 12, 256, 64] @ [ 1, 12, 64,  256] = [ 1, 12, 256,  256] 256 *  256 * 64^2 * n_head
 
         w = qk.softmax(dim=-1).to(q.dtype)
-        if x.shape[0] == 5: # decoder1
-            wv = (w @ v).view(5, 1, self.n_head * 64)
+        if x.shape[1] == 1: # decoder1
+            wv = (w @ v).view(*x.shape[:2], self.n_head * 64)
         else:
             wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
-        # decoder1   masked [5, 12,   1,  449] @ [5, 12,  449, 64] = [5, 12,   1, 64] 5 * 64 *  449^2 * n_head
-        # decoder256 masked [1, 12, 256,  256] @ [1, 12,  256, 64] = [1, 12, 256, 64] 1 * 64 *  256^2 * n_head
+        # decoder1   masked [bs, 12,   1,  449] @ [bs, 12,  449, 64] = [bs, 12,   1, 64] bs * 64 *  449^2 * n_head
+        # decoder256 masked [ 1, 12, 256,  256] @ [ 1, 12,  256, 64] = [ 1, 12, 256, 64]  1 * 64 *  256^2 * n_head
 
         return self.out(wv), new_k, new_v
 
@@ -79,22 +79,22 @@ class CrossMultiHeadAttention(MultiHeadAttention):
         k = cache_k
         v = cache_v
 
-        if x.shape[0] == 5: # decoder1
-            q = q.view(5, self.n_head, 1, 64)
+        if x.shape[1] == 1: # decoder1
+            q = q.view(q.shape[0], self.n_head, 1, 64)
         else:
             q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
         qk = q @ k
-        # decoder1   cross  [5, 12,   1, 64] @ [1, 12, 64, 1500] = [5, 12,   1, 1500]   5 * 1500 * 64^2 * n_head|30M * n_head
-        # decoder256 cross  [1, 12, 256, 64] @ [1, 12, 64, 1500] = [1, 12, 256, 1500] 256 * 1500 * 64^2 * n_head
+        # decoder1   cross  [bs, 12,   1, 64] @ [1, 12, 64, 1500] = [bs, 12,   1, 1500]  bs * 1500 * 64^2 * n_head|30M * n_head
+        # decoder256 cross  [ 1, 12, 256, 64] @ [1, 12, 64, 1500] = [ 1, 12, 256, 1500] 256 * 1500 * 64^2 * n_head
 
         w = qk.softmax(dim=-1).to(q.dtype)
-        if x.shape[0] == 5: # decoder1
-            wv = (w @ v).view(5, 1, self.n_head * 64)
+        if x.shape[1] == 1: # decoder1
+            wv = (w @ v).view(*x.shape[:2], self.n_head * 64)
         else:
             wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
-        # decoder1   cross  [5, 12,   1, 1500] @ [1, 12, 1500, 64] = [5, 12,   1, 64]   5 * 64 * 1500^2 * n_head|720M * n_head
-        # decoder256 cross  [1, 12, 256, 1500] @ [1, 12, 1500, 64] = [1, 12, 256, 64] 256 * 64 * 1500^2 * n_head
+        # decoder1   cross  [bs, 12,   1, 1500] @ [1, 12, 1500, 64] = [bs, 12,   1, 64]  bs * 64 * 1500^2 * n_head|720M * n_head
+        # decoder256 cross  [ 1, 12, 256, 1500] @ [1, 12, 1500, 64] = [ 1, 12, 256, 64] 256 * 64 * 1500^2 * n_head
 
         return self.out(wv), qk
 
@@ -275,7 +275,8 @@ class TextDecoder(nn.Module):
         if self.use_coreml:
             if masked_kv_caches is not None and x.shape[1] == 1:
                 if self.coremlDecoder == None:
-                    self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.n_vocab, self.modelName)
+                    bs = x.shape[0]
+                    self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.n_vocab, bs, self.modelName)
                 return self.coremlDecoder.predictWith(x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV)
 
             else:

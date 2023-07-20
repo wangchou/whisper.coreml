@@ -2,7 +2,7 @@
 extern "C" {
 #endif
 
-const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab);
+const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab, int beam_size);
 void closeModel(const void* model);
 void rearrange_mkv(int* indices, int text_offset);
 void predictWith(
