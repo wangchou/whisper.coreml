@@ -14,6 +14,13 @@ from .transcribe import transcribe as transcribe_function
 from .coreml import CoremlDecoder, CoremlDecoder256, CoremlCrossKV
 from timeit import default_timer as timer
 
+def fuse_query_and_qk_scale(state_dict, prefix, local_metadata, strict,
+                            missing_keys, unexpected_keys, error_msgs):
+    for k in state_dict:
+
+        if all(substr in k for substr in ['query']):
+            state_dict[k] = state_dict[k] * 0.125 # qk_scale = 1/(64^0.5)
+
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
@@ -23,7 +30,7 @@ class MultiHeadAttention(nn.Module):
         self.key = nn.Linear(n_state, n_state, bias=False)
         self.value = nn.Linear(n_state, n_state)
         self.out = nn.Linear(n_state, n_state)
-        self.qk_scale = (n_state // n_head) ** -0.5
+        self._register_load_state_dict_pre_hook(fuse_query_and_qk_scale)
 
     def forward(
         self,
@@ -36,7 +43,7 @@ class MultiHeadAttention(nn.Module):
         # decoder1:   (bs,    1, 384)
         # decoder256: (1,  256, 384), force bs=1 for speedup conversion
 
-        q = self.query(x) * self.qk_scale # multiply count: bs * 64^2 * n_head^2|0.2M * n_head
+        q = self.query(x)
         k = self.key(x)
         v = self.value(x)
 
@@ -75,7 +82,7 @@ class CrossMultiHeadAttention(MultiHeadAttention):
         cache_k: Tensor,
         cache_v: Tensor,
     ):
-        q = self.query(x) * self.qk_scale
+        q = self.query(x)
         k = cache_k
         v = cache_v
 
@@ -210,7 +217,6 @@ class TextDecoder(nn.Module):
         n_batch, n_ctx = x.shape
 
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
-        x = x
 
         if text_offset == 0: # decoder256
             if xa is not None:
