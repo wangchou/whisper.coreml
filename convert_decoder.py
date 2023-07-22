@@ -30,7 +30,11 @@ outType=np.float16
 
 # input data for trace
 x = torch.ones((bs, 1, n_state))
-qk_mask = torch.zeros((1,449))
+if bs == 1:
+    qk_mask = torch.zeros((1,450))
+else:
+    qk_mask = torch.zeros((1,449))
+
 masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state))
 cross_k_caches = torch.ones((n_layer, n_head, 64, 1500))
 cross_v_caches = torch.ones((n_layer, n_head, 1500, 64))

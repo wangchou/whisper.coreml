@@ -40,7 +40,7 @@ int main() {
     const void* decoder = loadModel("./small/CoremlDecoder.mlmodelc", n_layer, n_state, n_head, n_vocab, bs);
 
     float* x = getOnes(bs * n_state); // (bs, 1, n_state)
-    float* qk_mask = getOnes(449); // (1, 449)
+    float* qk_mask = getOnes(450); // (1, 449)
     float* masked_kv_caches = getOnes( n_layer * 2 * bs * 448 * n_state); // (n_layer * 2, 1, 448, n_state)
     float* cross_k_caches =  getOnes( n_layer * 1 * 1500 * n_state);
     float* cross_v_caches =  getOnes( n_layer * 1 * 1500 * n_state);

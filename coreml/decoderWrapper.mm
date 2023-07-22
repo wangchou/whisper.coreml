@@ -57,7 +57,11 @@ const void* loadModel(const char* modelPath, int n_layer, int n_state, int n_hea
     // input arrays
     n_head = n_state/64;
     inX = getPixelBufferArray3(bs, 1, n_state);
-    inQk_mask = getPixelBufferArray2(1, 449);
+    if (beam_size == 1) {
+        inQk_mask = getPixelBufferArray2(1, 450);
+    } else {
+        inQk_mask = getPixelBufferArray2(1, 449);
+    }
     inMkv = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
     inCk = getPixelBufferArray4(n_layer, n_head, 64, 1500);
     inCv = getPixelBufferArray4(n_layer, n_head, 1500, 64);

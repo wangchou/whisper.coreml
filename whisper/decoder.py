@@ -54,24 +54,14 @@ class MultiHeadAttention(nn.Module):
             k = torch.cat([cache_k, k], dim=1)
             v = torch.cat([cache_v, v], dim=1)
 
-        if x.shape[1] == 1: # decoder1
-            q = q.view(q.shape[0], self.n_head, 1, 64)
-        else:
-            q = q.view(*q.shape[:2], self.n_head, 64).permute(0, 2, 1, 3)
+        q = q.view(*q.shape[:2], self.n_head, 64).permute(0, 2, 1, 3)
         k = k.view(*k.shape[:2], self.n_head, 64).permute(0, 2, 3, 1)
         v = v.view(*v.shape[:2], self.n_head, 64).permute(0, 2, 1, 3)
 
         qk = q @ k + qk_mask
-        # decoder1   masked [bs, 12,   1, 64] @ [bs, 12, 64,  449] = [bs, 12,   1,  449]  bs *  449 * 64^2 * n_head
-        # decoder256 masked [ 1, 12, 256, 64] @ [ 1, 12, 64,  256] = [ 1, 12, 256,  256] 256 *  256 * 64^2 * n_head
 
         w = qk.softmax(dim=-1).to(q.dtype)
-        if x.shape[1] == 1: # decoder1
-            wv = (w @ v).view(*x.shape[:2], self.n_head * 64)
-        else:
-            wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
-        # decoder1   masked [bs, 12,   1,  449] @ [bs, 12,  449, 64] = [bs, 12,   1, 64] bs * 64 *  449^2 * n_head
-        # decoder256 masked [ 1, 12, 256,  256] @ [ 1, 12,  256, 64] = [ 1, 12, 256, 64]  1 * 64 *  256^2 * n_head
+        wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
 
         return self.out(wv), new_k, new_v
 
@@ -86,22 +76,12 @@ class CrossMultiHeadAttention(MultiHeadAttention):
         k = cache_k
         v = cache_v
 
-        if x.shape[1] == 1: # decoder1
-            q = q.view(q.shape[0], self.n_head, 1, 64)
-        else:
-            q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
 
         qk = q @ k
-        # decoder1   cross  [bs, 12,   1, 64] @ [1, 12, 64, 1500] = [bs, 12,   1, 1500]  bs * 1500 * 64^2 * n_head|30M * n_head
-        # decoder256 cross  [ 1, 12, 256, 64] @ [1, 12, 64, 1500] = [ 1, 12, 256, 1500] 256 * 1500 * 64^2 * n_head
 
         w = qk.softmax(dim=-1).to(q.dtype)
-        if x.shape[1] == 1: # decoder1
-            wv = (w @ v).view(*x.shape[:2], self.n_head * 64)
-        else:
-            wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
-        # decoder1   cross  [bs, 12,   1, 1500] @ [1, 12, 1500, 64] = [bs, 12,   1, 64]  bs * 64 * 1500^2 * n_head|720M * n_head
-        # decoder256 cross  [ 1, 12, 256, 1500] @ [1, 12, 1500, 64] = [ 1, 12, 256, 64] 256 * 64 * 1500^2 * n_head
+        wv = (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2)
 
         return self.out(wv), qk
 
@@ -140,14 +120,7 @@ class ResidualAttentionBlock(nn.Module):
             x_out, cross_qk = self.cross_attn(self.cross_attn_ln(x), cache_k=ck, cache_v=cv)
             x = x + x_out
 
-        # mlp([1,1,768]) is 25% slower than mlp([1, 2~100, 768]) on ANE
-        # I don't know why... note: this also makes whisper on cpu 10.5s -> 13.3s
-        if x.shape[0] == 1 and x.shape[1] == 1:
-            x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1)
-            x = x + self.mlp(self.mlp_ln(x))
-            x = x.split(1, dim=1)[0]
-        else:
-            x = x + self.mlp(self.mlp_ln(x))
+        x = x + self.mlp(self.mlp_ln(x))
         return x, cross_qk, new_mk, new_mv
 
 class TextDecoder(nn.Module):
@@ -264,6 +237,10 @@ class TextDecoder(nn.Module):
                                  torch.ones((1, 448-text_offset)) * -np.inf,
                                  torch.FloatTensor([[0]])],
                                  dim=1)
+            # nn.Linear trick
+            if x.shape[0] == 1 and x.shape[1] == 1:
+                qk_mask = torch.cat([qk_mask, torch.FloatTensor([[1]]) * -np.inf], dim=1)
+
             logits, new_masked_kv_caches = self.forwardBlocks(x,
                                                               qk_mask,
                                                               masked_kv_caches,
@@ -301,6 +278,12 @@ class TextDecoder(nn.Module):
                     self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head, n_alignment_head, self.modelName)
                 return self.coremlDecoder256.predictWith(x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV)
         ############################
+
+        if x.shape[0] == 1 and x.shape[1] == 1:
+            # nn.Linear speed up trick
+            # mlp([1,1,768]) is 25% slower than mlp([1, 2~100, 768]) on ANE
+            # I don't know why... note: this also makes whisper on cpu 10.5s -> 14.3s
+            x = torch.cat([x, torch.zeros((1, 1, self.n_state))], dim=1)
 
         cross_head_weights = []
         new_masked_kv_caches = []
@@ -347,9 +330,13 @@ class TextDecoder(nn.Module):
         x = self.ln(x)
 
         if qk_mask.shape[0] == 1: # decoder1
-            splits = self.token_embedding.weight.split(self.n_vocab//5, dim=0)
-            x = x.view(*x.shape[:2], self.n_state)
-            logits = torch.cat([ x @ split.transpose(0,1) for split in splits], dim=2)
+            splits = self.token_embedding.weight.split(12288, dim=0)
+            logits = torch.cat([x @ split.transpose(0,1) for split in splits], dim=2)
+
+            if x.shape[0] == 1:
+                # remove redudant data from Linear speed up trick
+                logits = logits.split(1, dim=1)[0]
+                new_masked_kv_caches = new_masked_kv_caches.split(1, dim=2)[0]
 
             return logits, new_masked_kv_caches
         else: # decoder256 and decoder call from add timestamp
