@@ -139,7 +139,15 @@ class ResidualAttentionBlock(nn.Module):
         if self.cross_attn:
             x_out, cross_qk = self.cross_attn(self.cross_attn_ln(x), cache_k=ck, cache_v=cv)
             x = x + x_out
-        x = x + self.mlp(self.mlp_ln(x))
+
+        # mlp([1,1,768]) is 25% slower than mlp([1, 2~100, 768]) on ANE
+        # I don't know why... note: this also makes whisper on cpu 10.5s -> 13.3s
+        if x.shape[0] == 1 and x.shape[1] == 1:
+            x = torch.cat([x, torch.zeros(1, 1, self.n_state)], dim=1)
+            x = x + self.mlp(self.mlp_ln(x))
+            x = x.split(1, dim=1)[0]
+        else:
+            x = x + self.mlp(self.mlp_ln(x))
         return x, cross_qk, new_mk, new_mv
 
 class TextDecoder(nn.Module):
