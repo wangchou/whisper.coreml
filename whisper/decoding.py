@@ -166,18 +166,21 @@ class PyTorchInference(Inference):
         if n_ctx == 1 and self.model.text_offset > 0:
             self.model.isNewCKV = False # for coreml only
 
-        if self.model.text_offset == 0:
-            # append zeros to 448 len
-            zeros_shape = (new_mkv.shape[0],
-                           new_mkv.shape[1],
-                           448 - self.model.decoder.max_n_ctx_for_1st,
-                           new_mkv.shape[3])
-            self.model.masked_kv_caches = torch.cat([new_mkv,
-                                                     torch.zeros(zeros_shape)], dim=2)
+        if self.model.use_coreml:
+            self.model.masked_kv_caches = torch.ones((1))
         else:
-            from_offset = self.model.text_offset
-            to_offset = self.model.text_offset + n_ctx
-            self.model.masked_kv_caches[:, :, from_offset:to_offset, :] = new_mkv
+            if self.model.text_offset == 0:
+                # append zeros to 448 len
+                zeros_shape = (new_mkv.shape[0],
+                               new_mkv.shape[1],
+                               448 - self.model.decoder.max_n_ctx_for_1st,
+                               new_mkv.shape[3])
+                self.model.masked_kv_caches = torch.cat([new_mkv,
+                                                         torch.zeros(zeros_shape)], dim=2)
+            else:
+                from_offset = self.model.text_offset
+                to_offset = self.model.text_offset + n_ctx
+                self.model.masked_kv_caches[:, :, from_offset:to_offset, :] = new_mkv
 
         self.model.text_offset += n_ctx
 
@@ -191,7 +194,7 @@ class PyTorchInference(Inference):
 
     def rearrange_kv_cache(self, source_indices):
         #startT = timer()
-        if not self.model.use_coreml or self.model.text_offset <= 3: # only after decoder256
+        if not self.model.use_coreml: # only after decoder256
             if source_indices != list(range(len(source_indices))):
                 # numpy is faster than torch 26ms -> 16ms
                 text_offset = self.model.text_offset
@@ -202,11 +205,10 @@ class PyTorchInference(Inference):
                     np_array_part[i] = np_array_part[i][source_indices]
                 np_array[:, :, :text_offset] = np_array_part
                 self.model.masked_kv_caches = torch.from_numpy(np_array)
-
-        if self.model.use_coreml and self.model.decoder.coremlDecoder != None:
+        else:
             source_indices = torch.from_numpy(np.array(source_indices))
-            self.model.decoder.coremlDecoder.rearrange_mkv(source_indices,
-                                                           self.model.text_offset)
+            self.model.decoder.coreml.rearrange_mkv(source_indices,
+                                                    self.model.text_offset)
         #print(f"🦋🦋rearrange_kv_cache tooks {timer()-startT:.3f}")
 
 class SequenceRanker:

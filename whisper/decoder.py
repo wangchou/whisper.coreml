@@ -197,6 +197,9 @@ class TextDecoder(nn.Module):
 
         x = self.token_embedding(x) + self.positional_embedding[offset : offset + n_ctx]
 
+        if self.use_coreml:
+            self.coreml.bs = x.shape[0]
+
         if text_offset == 0: # decoder256
             if xa is not None:
                 self.cross_k_caches, self.cross_v_caches = self.crossKVCaches(xa)
@@ -216,14 +219,15 @@ class TextDecoder(nn.Module):
                                                                            masked_kv_caches,
                                                                            self.cross_k_caches,
                                                                            self.cross_v_caches,
-                                                                           isNewCKV=(bs_idx==0))
+                                                                           beam_idx=bs_idx)
                 if bs_idx == 0:
                     x = _x
                     new_masked_kv_caches = _new_masked_kv_caches
                     cross_qks = _cross_qks
                 else:
                     x = torch.cat([x, _x], dim=0)
-                    new_masked_kv_caches = torch.cat([new_masked_kv_caches, _new_masked_kv_caches], dim=1)
+                    if not self.use_coreml:
+                        new_masked_kv_caches = torch.cat([new_masked_kv_caches, _new_masked_kv_caches], dim=1)
 
             x = x.split(n_ctx, dim=1)[0]
             cross_qks = cross_qks.split(n_ctx, dim=1)[0]
@@ -245,7 +249,6 @@ class TextDecoder(nn.Module):
                                                               self.cross_k_caches,
                                                               self.cross_v_caches,
                                                               text_offset,
-                                                              isNewCKV,
                                                               )
             cross_qks = None
 
@@ -258,20 +261,19 @@ class TextDecoder(nn.Module):
                       cross_k_caches: Optional[Tensor] = None,
                       cross_v_caches: Optional[Tensor] = None,
                       text_offset: Optional[int] = None, # only for coremlDecoder1
-                      isNewCKV: Optional[Tensor] = None, # only for coremlDecoder1
+                      beam_idx: Optional[int] = None, # only for coremlDecoder256
                       ):
 
         ############################
         # Coreml Decoder part
         if self.use_coreml:
             if masked_kv_caches is not None and x.shape[1] == 1:
-                self.coreml.bs = x.shape[0]
                 self.coreml.loadDecoder1()
-                return self.coreml.decoder1Predict(x, qk_mask, masked_kv_caches, text_offset, isNewCKV)
+                return self.coreml.decoder1Predict(x, qk_mask, text_offset)
             else:
                 self.coreml.n_alignment_head = self.alignment_heads.to_sparse().indices().shape[1]
                 self.coreml.loadDecoder256()
-                return self.coreml.decoder256Predict(x, qk_mask)
+                return self.coreml.decoder256Predict(x, qk_mask, beam_idx)
         ############################
 
         if x.shape[0] == 1 and x.shape[1] == 1:

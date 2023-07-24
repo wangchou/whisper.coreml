@@ -18,6 +18,7 @@ extern "C" {
 MLMultiArray *arrayXa; // encoder out, crossKV in
 MLMultiArray *arrayCK; // crossKV out, decoder in
 MLMultiArray *arrayCV; // crossKV out, decoder in
+MLMultiArray *arrayMKV448; // decoder256 outMKV256 copyed to it, and use as decoder1 input
 
 /* Encoder ------------------------------------------ */
 int model_count;
@@ -192,7 +193,12 @@ MLMultiArray *outMKV256;
 bool isDecoder256Predicted = false;
 bool isDecoder256Loaded = false;
 
-void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head, int n_alignment_head) {
+int _n_layer;
+int _n_state;
+int bs = 1;
+uint16* tmpMKV[5]; // (bs, 448, n_state)
+
+void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head, int n_alignment_head, int decoder1_bs) {
     CFTimeInterval startT = CACurrentMediaTime();
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isDecoder256Loaded) {
@@ -210,6 +216,7 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
     }
 
     int max_n_ctx = 256;
+
     // input arrays
     inX256 = getPixelBufferArray3(1, max_n_ctx, n_state);
     inQk_mask256 = getPixelBufferArray2(max_n_ctx, max_n_ctx);
@@ -217,10 +224,57 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
     outX256 = getPixelBufferArray3(1, max_n_ctx, n_state);
     outCHW256 = getPixelBufferArray3(n_alignment_head, max_n_ctx, 1500);
     outMKV256 = getPixelBufferArray4(n_layer*2, 1, max_n_ctx, n_state);
+
+    // prepare for decoder1 input
+    _n_layer = n_layer;
+    _n_state = n_state;
+    bs = decoder1_bs;
+    arrayMKV448 = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
+
+    // tmpMKV for rearrange_mkv
+    for(int bi=0; bi<bs; bi++) {
+        tmpMKV[bi] = (uint16*) malloc(448 * n_state * sizeof(uint16));
+    }
+
     if (!isDecoder256Loaded) {
         NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
     }
     isDecoder256Loaded = true;
+}
+
+// np_array_part = np_array[:,:,:text_offset]
+// foreach layer i
+//     np_array_part[i] = np_array_part[i][source_indices]
+// np_array[:, :, :text_offset] = np_array_part
+//
+// arrayMKV448:  (n_layer * 2) * bs * 448 * n_state
+uint16* copyed_ptr[5];
+void rearrange_mkv(int* indices, int text_offset) {
+    //NSLog(@"rearrange_mkv bs=%d, n_layer=%d, n_state=%d, index[0]=%d %d, text_offset=%d", bs, _n_layer, _n_state, indices[0], indices[1], text_offset);
+    int copyCount = text_offset * _n_state;
+    uint16* layerPtr = (uint16*)arrayMKV448.dataPointer;
+
+    int bsStride = 448 * _n_state;
+    for(int layer_i=0; layer_i < _n_layer * 2; layer_i++) {
+        // copy to tmp buffer
+        for(int bi=0; bi<bs; bi++) {
+            uint16* srcPtr = layerPtr + bi * bsStride;
+            uint16* dstPtr = indices[bi] == bi ? srcPtr : tmpMKV[bi];
+            if (srcPtr != dstPtr) {
+                memcpy(dstPtr, srcPtr, copyCount * sizeof(uint16));
+            }
+            copyed_ptr[bi] = dstPtr;
+        }
+        // copy from tmpBuffer back to origin
+        for(int bi=0; bi<bs; bi++) {
+            uint16* srcPtr = copyed_ptr[indices[bi]];
+            uint16* dstPtr = layerPtr + bi * bsStride;
+            if (srcPtr != dstPtr) {
+                memcpy(dstPtr, srcPtr, copyCount * sizeof(uint16));
+            }
+        }
+        layerPtr += bs * 448 * _n_state;
+    }
 }
 
 void decoder256Predict(
@@ -228,7 +282,7 @@ void decoder256Predict(
     float* qk_mask, // (256, 256)
     float* out_x,
     float* out_cross_head_weights,
-    float* out_new_masked_kv_caches
+    int beam_idx // for copy to arrayMKV448 as decoder1 input
 ) {
     CFTimeInterval startT = CACurrentMediaTime();
 
@@ -258,11 +312,26 @@ void decoder256Predict(
 
     maToFloat32(outCHW256, out_cross_head_weights);
 
-    maToFloat32(outMKV256, out_new_masked_kv_caches);
+    // arrayMKV448[:, :, :256] = outMKV256
+    // arrayMKV448:  (n_layer * 2) * bs * 448 * n_state
+    uint16* layer256Ptr = (uint16*)outMKV256.dataPointer;
+    uint16* layer448Ptr = (uint16*)arrayMKV448.dataPointer;
+    int bsStride256 = 256 * _n_state;//text_offset * _n_state;
+    int bsStride448 = 448 * _n_state;
+    for(int layer_i=0; layer_i < _n_layer * 2; layer_i++) {
+        uint16* srcPtr = layer256Ptr;
+        uint16* dstPtr = layer448Ptr + beam_idx * bsStride448;
+        memcpy(dstPtr, srcPtr, bsStride256 * sizeof(uint16));
+
+        layer256Ptr += bsStride256;
+        layer448Ptr += bs * bsStride448;
+    }
+
     if (!isDecoder256Predicted) {
         unlock(outX256);
         unlock(outCHW256);
         unlock(outMKV256);
+        unlock(arrayMKV448);
         isDecoder256Predicted = true;
     }
 }
@@ -274,17 +343,20 @@ void closeDecoder256() {
     CFRelease(outX256.pixelBuffer);
     CFRelease(outCHW256.pixelBuffer);
     CFRelease(outMKV256.pixelBuffer);
+    for(int i=0; i<bs; i++) {
+        free(tmpMKV[i]);
+    }
+
     isDecoder256Loaded = false;
     isDecoder256Predicted = false;
 }
 
-/* Decoder ------------------------------------------ */
+/* Decoder1 ------------------------------------------ */
 const void* decoder1;
 
 // input arrays
 MLMultiArray *inX_1;
 MLMultiArray *inQk_mask_1;
-MLMultiArray *inMkv_1;
 
 // output arrays
 MLMultiArray *outX_1;
@@ -292,21 +364,13 @@ MLMultiArray *outMKV_1;
 
 bool isDecoder1Predicted = false;
 bool isDecoder1Loaded = false;
-int _n_layer;
-int _n_state;
 int _n_head;
 int _n_vocab;
-int bs = 1;
 
-uint16* tmpMKV[5]; // (bs, 448, n_state)
-
-void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab, int beam_size) {
+void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab) {
     CFTimeInterval startT = CACurrentMediaTime();
-    _n_layer = n_layer;
-    _n_state = n_state;
     _n_head = n_head;
     _n_vocab = n_vocab;
-    bs = beam_size;
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isDecoder1Loaded) {
         NSLog(@"loading %@", modelPathStr);
@@ -325,21 +389,15 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
     // input arrays
     n_head = n_state/64;
     inX_1 = getPixelBufferArray3(bs, 1, n_state);
-    if (beam_size == 1) {
+    if (bs == 1) {
         inQk_mask_1 = getPixelBufferArray2(1, 450);
     } else {
         inQk_mask_1 = getPixelBufferArray2(1, 449);
     }
-    inMkv_1 = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
 
     // output arrays
     outX_1 = getPixelBufferArray3(bs, 1, n_vocab);
     outMKV_1 = getPixelBufferArray4(n_layer*2, bs, 1, n_state);
-
-    // tmpMKV for rearrange_mkv
-    for(int bi=0; bi<bs; bi++) {
-        tmpMKV[bi] = (uint16*) malloc(448 * n_state * sizeof(uint16));
-    }
 
     if (!isDecoder1Loaded) {
         NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
@@ -347,47 +405,11 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
     isDecoder1Loaded = true;
 }
 
-// np_array_part = np_array[:,:,:text_offset]
-// foreach layer i
-//     np_array_part[i] = np_array_part[i][source_indices]
-// np_array[:, :, :text_offset] = np_array_part
-//
-// inMkv_1:  (n_layer * 2) * bs * 448 * n_state
-uint16* copyed_ptr[5];
-void rearrange_mkv(int* indices, int text_offset) {
-    //NSLog(@"objc rearrange_mkv indices=%d,%d,%d,%d,%d... text_offset=%d", indices[0], indices[1],indices[2], indices[3], indices[4], text_offset);
-    int copyCount = 448 * _n_state;//text_offset * _n_state;
-    uint16* layerPtr = (uint16*)inMkv_1.dataPointer;
-
-    int bsStride = 448 * _n_state;
-    for(int layer_i=0; layer_i < _n_layer * 2; layer_i++) {
-        // copy to tmp buffer
-        for(int bi=0; bi<bs; bi++) {
-            uint16* srcPtr = layerPtr + bi * bsStride;
-            uint16* dstPtr = indices[bi] == bi ? srcPtr : tmpMKV[bi];
-            if (srcPtr != dstPtr) {
-                memcpy(dstPtr, srcPtr, copyCount * sizeof(uint16));
-            }
-            copyed_ptr[bi] = dstPtr;
-        }
-        // copy from tmpBuffer back to origin
-        for(int bi=0; bi<bs; bi++) {
-            uint16* srcPtr = copyed_ptr[indices[bi]];
-            uint16* dstPtr = layerPtr + bi * bsStride;
-            if (srcPtr != dstPtr) {
-                memcpy(dstPtr, srcPtr, copyCount * sizeof(uint16));
-            }
-        }
-        layerPtr += bs * 448 * _n_state;
-    }
-}
 
 void decoder1Predict(
     float* x, // (bs, 1, n_state)
     float* qk_mask, // (1, 449)
-    float* masked_kv_caches, // (n_layer * 2, bs, 448, n_state)
     int text_offset,
-    bool isNewCKV,
     float* out_x,
     float* out_new_masked_kv_caches
 ) {
@@ -396,11 +418,7 @@ void decoder1Predict(
     float32ToMa(x, inX_1);
     float32ToMa(qk_mask, inQk_mask_1);
 
-    if (isNewCKV) {
-        float32ToMa(masked_kv_caches, inMkv_1);
-    }
-
-    CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX_1 qk_mask:inQk_mask_1 masked_kv_caches:inMkv_1 cross_k_caches:arrayCK cross_v_caches:arrayCV];
+    CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX_1 qk_mask:inQk_mask_1 masked_kv_caches:arrayMKV448 cross_k_caches:arrayCK cross_v_caches:arrayCV];
 
     MLPredictionOptions* options = [MLPredictionOptions alloc];
 
@@ -423,9 +441,9 @@ void decoder1Predict(
     maToFloat32(outMKV_1, out_new_masked_kv_caches);
 
     // mkv[:, :, text_offset] = new_mkv
-    // inMkv_1:  (n_layer * 2) * bs * 448 * n_state
+    // arrayMKV448:  (n_layer * 2) * bs * 448 * n_state
     // outMKV_1: (n_layer * 2) * bs *   1 * n_state
-    uint16 *dstPtr = (uint16*)inMkv_1.dataPointer + (text_offset * _n_state);
+    uint16 *dstPtr = (uint16*)arrayMKV448.dataPointer + (text_offset * _n_state);
     uint16 *srcPtr = (uint16*)outMKV_1.dataPointer;
     int dstStride = 448 * _n_state;
     int srcStride = _n_state;
@@ -437,7 +455,6 @@ void decoder1Predict(
     //NSLog(@"\toutput fp16->fp32 %.4f", CACurrentMediaTime() - startT);
 
     if (!isDecoder1Predicted) {
-        unlock(inMkv_1);
         unlock(outX_1);
         unlock(outMKV_1);
         isDecoder1Predicted = true;
@@ -451,9 +468,6 @@ void closeDecoder1() {
 
     CFRelease(outX_1.pixelBuffer);
     CFRelease(outMKV_1.pixelBuffer);
-    for(int i=0; i<bs; i++) {
-        free(tmpMKV[i]);
-    }
 
     isDecoder1Loaded = false;
     isDecoder1Predicted = false;
