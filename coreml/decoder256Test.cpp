@@ -1,4 +1,4 @@
-#include "decoder256Wrapper.h"
+#include "decoder256.h"
 #include <stdlib.h>
 #include <iostream>
 #include <chrono>

@@ -1,7 +1,7 @@
 #import <CoreML/CoreML.h>
 #import <Accelerate/Accelerate.h>
 #import <QuartzCore/QuartzCore.h>
-#import "crossKVWrapper.h"
+#import "crossKV.h"
 #import "CoremlCrossKV.h"
 #include <stdlib.h>
 #import "coremlUtility.h"

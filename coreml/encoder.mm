@@ -2,7 +2,7 @@
 #include <malloc/_malloc.h>
 #import <Accelerate/Accelerate.h>
 #import <QuartzCore/QuartzCore.h>
-#import "encoderWrapper.h"
+#import "encoder.h"
 #import "coremlUtility.h"
 #import "CoremlEncoder0.h"
 #include <stdlib.h>

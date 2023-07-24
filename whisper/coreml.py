@@ -25,7 +25,7 @@ class CoremlEncoder():
         global totalLoadTime
         startT = timer()
         if self.encoderObj == None:
-            self.encoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/encoderWrapper.so')
+            self.encoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/encoder.so')
             self.encoderObj.loadModel.argtypes = [c_char_p, c_int, c_int]
             self.encoderObj.loadModel.restype = None
             c_string = bytes(f'./coreml/{self.modelName}', 'ascii')
@@ -75,7 +75,7 @@ class CoremlDecoder256():
         global totalLoadTime
         startT = timer()
         if self.mlmodel_handle == None:
-            self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoder256Wrapper.so')
+            self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoder256.so')
             self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int, c_int]
             self.decoderObj.loadModel.restype = c_void_p
             c_string = bytes(f'./coreml/{self.modelName}/CoremlDecoder256.mlmodelc', 'ascii')
@@ -154,7 +154,7 @@ class CoremlDecoder():
         global totalLoadTime
         startT = timer()
         if self.mlmodel_handle == None:
-            self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoderWrapper.so')
+            self.decoderObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/decoder.so')
             self.decoderObj.loadModel.argtypes = [c_char_p, c_int, c_int, c_int, c_int, c_int]
             self.decoderObj.loadModel.restype = c_void_p
             c_string = bytes(f'./coreml/{self.modelName}/CoremlDecoder.mlmodelc', 'ascii')
@@ -246,7 +246,7 @@ class CoremlCrossKV():
         global totalLoadTime
         startT = timer()
         if self.mlmodel_handle == None:
-            self.crossKVObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/crossKVWrapper.so')
+            self.crossKVObj = cdll.LoadLibrary(f'./coreml/{self.modelName}/crossKV.so')
             self.crossKVObj.loadModel.argtypes = [c_char_p, c_int, c_int]
             self.crossKVObj.loadModel.restype = c_void_p
             c_string = bytes(f'./coreml/{self.modelName}/CoremlCrossKV.mlmodelc', 'ascii')

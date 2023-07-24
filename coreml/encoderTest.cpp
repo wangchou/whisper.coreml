@@ -1,4 +1,4 @@
-#include "encoderWrapper.h"
+#include "encoder.h"
 #include <stdlib.h>
 #include <iostream>
 #include <chrono>

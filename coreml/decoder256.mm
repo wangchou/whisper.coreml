@@ -1,7 +1,7 @@
 #import <CoreML/CoreML.h>
 #import <Accelerate/Accelerate.h>
 #import <QuartzCore/QuartzCore.h>
-#import "decoder256Wrapper.h"
+#import "decoder256.h"
 #import "CoremlDecoder256.h"
 #include <stdlib.h>
 #import "coremlUtility.h"
