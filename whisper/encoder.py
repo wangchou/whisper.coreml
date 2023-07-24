@@ -108,8 +108,7 @@ class AudioEncoder(nn.Module):
         ############################
         if self.use_coreml:
             self.coreml.loadEncoder()
-            result = self.coreml.encoderPredict(x)
-            return result
+            return self.coreml.encoderPredict(x)
         ############################
 
         self.from_block_idx = 0

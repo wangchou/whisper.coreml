@@ -14,13 +14,16 @@
 extern "C" {
 #endif
 
+// shared fp16 data array across models
+MLMultiArray *arrayXa; // encoder out, crossKV in
+MLMultiArray *arrayCK; // crossKV out, decoder in
+MLMultiArray *arrayCV; // crossKV out, decoder in
+
 /* Encoder ------------------------------------------ */
 int model_count;
 const void* encoders[8]; // max = 32 layer / 4
 
 MLMultiArray *inMelSegment;
-MLMultiArray *arrayXa; // encoder out, crossKV in
-
 
 bool isEncoderPredicted = false;
 bool isEncoderLoaded = false;
@@ -56,7 +59,7 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state) {
     isEncoderLoaded = true;
 }
 
-void encoderPredict(float* melSegment, float* encoderOutput) {
+void encoderPredict(float* melSegment) {
     MLPredictionOptions* options;
     options = [MLPredictionOptions alloc];
     NSDictionary *outputBackings = @{
@@ -87,8 +90,6 @@ void encoderPredict(float* melSegment, float* encoderOutput) {
         }
     }
 
-    //maToFloat32(arrayXa, encoderOutput);
-
     if (!isEncoderPredicted) {
         void * ptr = arrayXa.dataPointer;
         unlock(arrayXa);
@@ -108,8 +109,6 @@ void closeEncoder() {
 }
 
 /* CrossKV ------------------------------------------ */
-MLMultiArray *arrayCK; // crossKV out, decoder in
-MLMultiArray *arrayCV; // crossKV out, decoder in
 bool isCrossKVPredicted = false;
 bool isCrossKVLoaded = false;
 
@@ -142,18 +141,7 @@ void loadCrossKV(const char* modelPath, int n_layer, int n_state) {
     isCrossKVLoaded = true;
 }
 
-void crossKVPredict(
-    float* xa, // (1, 1500, n_state)
-    float* out_cross_k_caches,
-    float* out_cross_v_caches
-) {
-    //CFTimeInterval startT = CACurrentMediaTime();
-
-    // input arrays
-    //if (arrayXa == nil) {
-    //    float32ToMa(xa, arrayXa);
-    //}
-
+void crossKVPredict() {
     CoremlCrossKVInput* input = [[CoremlCrossKVInput alloc] initWithXa:arrayXa];
 
     MLPredictionOptions* options = [MLPredictionOptions alloc];
@@ -165,16 +153,11 @@ void crossKVPredict(
     [options setOutputBackings:outputBackings];
 
     NSError *error = nil;
-    CoremlCrossKVOutput *output;
-
-    output = (CoremlCrossKVOutput*)[(__bridge id)crossKV predictionFromFeatures:input options:options error:&error];
+    [(__bridge id)crossKV predictionFromFeatures:input options:options error:&error];
 
     if(error) {
         NSLog(@"%@", error);
     }
-
-    //maToFloat32(arrayCK, out_cross_k_caches);
-    //maToFloat32(arrayCV, out_cross_v_caches);
 
     if (!isCrossKVPredicted) {
         void * ptr1 = arrayCK.dataPointer;
@@ -243,9 +226,6 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
 void decoder256Predict(
     float* x, // (1, 256, n_state)
     float* qk_mask, // (256, 256)
-    float* cross_k_caches,
-    float* cross_v_caches,
-    bool isNewCKV,
     float* out_x,
     float* out_cross_head_weights,
     float* out_new_masked_kv_caches
@@ -255,10 +235,6 @@ void decoder256Predict(
     // input arrays
     float32ToMa(x, inX256);
     float32ToMa(qk_mask, inQk_mask256);
-    //if (isNewCKV) {
-    //    float32ToMa(cross_k_caches, arrayCK);
-    //    float32ToMa(cross_v_caches, arrayCV);
-    //}
 
     CoremlDecoder256Input* input = [[CoremlDecoder256Input alloc] initWithX:inX256 qk_mask:inQk_mask256 cross_k_caches:arrayCK cross_v_caches:arrayCV];
 
@@ -272,9 +248,7 @@ void decoder256Predict(
     [options setOutputBackings:outputBackings];
 
     NSError *error = nil;
-    CoremlDecoder256Output *output;
-
-    output = (CoremlDecoder256Output*)[(__bridge id)decoder256 predictionFromFeatures:input options:options error:&error];
+    [(__bridge id)decoder256 predictionFromFeatures:input options:options error:&error];
 
     if(error) {
         NSLog(@"Decoder256 Error %@", error);
@@ -378,7 +352,7 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
 //     np_array_part[i] = np_array_part[i][source_indices]
 // np_array[:, :, :text_offset] = np_array_part
 //
-// inMkv_1:  (n_layer * 2) * 5 * 448 * n_state
+// inMkv_1:  (n_layer * 2) * bs * 448 * n_state
 uint16* copyed_ptr[5];
 void rearrange_mkv(int* indices, int text_offset) {
     //NSLog(@"objc rearrange_mkv indices=%d,%d,%d,%d,%d... text_offset=%d", indices[0], indices[1],indices[2], indices[3], indices[4], text_offset);
@@ -412,8 +386,6 @@ void decoder1Predict(
     float* x, // (bs, 1, n_state)
     float* qk_mask, // (1, 449)
     float* masked_kv_caches, // (n_layer * 2, bs, 448, n_state)
-    float* cross_k_caches,
-    float* cross_v_caches,
     int text_offset,
     bool isNewCKV,
     float* out_x,
@@ -421,19 +393,12 @@ void decoder1Predict(
 ) {
     //CFTimeInterval startT = CACurrentMediaTime();
 
-    // input arrays
     float32ToMa(x, inX_1);
     float32ToMa(qk_mask, inQk_mask_1);
 
     if (isNewCKV) {
         float32ToMa(masked_kv_caches, inMkv_1);
-        //if (arrayCK == nil) {
-        //    float32ToMa(cross_k_caches, arrayCK);
-        //    float32ToMa(cross_v_caches, arrayCV);
-        //}
     }
-    //NSLog(@"\tinput fp32->fp16  %.4f", CACurrentMediaTime() - startT);
-    //startT = CACurrentMediaTime();
 
     CoremlDecoderInput* input = [[CoremlDecoderInput alloc] initWithX:inX_1 qk_mask:inQk_mask_1 masked_kv_caches:inMkv_1 cross_k_caches:arrayCK cross_v_caches:arrayCV];
 
@@ -446,9 +411,7 @@ void decoder1Predict(
     [options setOutputBackings:outputBackings];
 
     NSError *error = nil;
-    CoremlDecoderOutput *output;
-
-    output = (CoremlDecoderOutput*)[(__bridge id)decoder1 predictionFromFeatures:input options:options error:&error];
+    [(__bridge id)decoder1 predictionFromFeatures:input options:options error:&error];
 
     if(error) {
         NSLog(@"%@", error);

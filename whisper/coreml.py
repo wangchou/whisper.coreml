@@ -14,6 +14,9 @@ totalDecoder1Time = 0
 totalDecoder256Time = 0
 totalCrossKVTime = 0
 
+# some returns are passing by objc in fp16 format
+# won't enter python fp32 environment. returns dummy in this case
+dummy = torch.ones((1))
 class Coreml():
     def __init__(self, n_layer: int, n_state: int, n_head: int, n_vocab: int, modelName):
         self.obj = cdll.LoadLibrary(f'./coreml/{modelName}/coreml.so')
@@ -40,9 +43,6 @@ class Coreml():
         c_string = bytes(f'./coreml/{self.modelName}', 'ascii')
         self.obj.loadEncoder(c_string, self.n_layer, self.n_state)
         self.isEncoderLoaded = True
-        # alloc output buffer
-        self.output_floats = torch.ones((1, 1500, self.n_state), dtype=torch.float32).contiguous()
-        self.output_floats_ptr = ctypes.cast(self.output_floats.data_ptr(), f32Ptr)
         totalLoadTime += timer()-startT
 
     def encoderPredict(self, melSegment):
@@ -51,18 +51,18 @@ class Coreml():
             print("⛑️")
             return
         startT = timer()
-        self.obj.encoderPredict.argtypes = [f32Ptr, f32Ptr]
+        self.obj.encoderPredict.argtypes = [f32Ptr]
         self.obj.encoderPredict.restypes = None
 
         # force memory continuous, this is very important
         melSegment = melSegment.contiguous()
         melSegmentDataPtr = ctypes.cast(melSegment.data_ptr(), f32Ptr)
 
-        self.obj.encoderPredict(melSegmentDataPtr, self.output_floats_ptr)
+        self.obj.encoderPredict(melSegmentDataPtr)
         if logPredictTime:
             print(f"\tcoreml encoder {timer()-startT:.3f}")
         totalEncoderTime += timer() - startT
-        return self.output_floats
+        return dummy
 
     def closeEncoder(self):
         self.obj.closeEncoder.argtypes = None
@@ -84,35 +84,24 @@ class Coreml():
         n_layer = self.n_layer
         n_head = n_state//64
 
-        dtype1=torch.float32
-        # prepare output buffers
-        self.out_cross_k_caches = torch.ones((n_layer, n_head, 64, 1500), dtype=dtype1).contiguous()
-        self.outCKPtr = ctypes.cast(self.out_cross_k_caches.data_ptr(), f32Ptr)
-        self.out_cross_v_caches = torch.ones((n_layer, n_head, 1500, 64), dtype=dtype1).contiguous()
-        self.outCVPtr = ctypes.cast(self.out_cross_v_caches.data_ptr(), f32Ptr)
         self.isCrossKVLoaded = True
         totalLoadTime += timer()-startT
 
-    def crossKVPredict(self, xa):
+    def crossKVPredict(self):
         global totalCrossKVTime
         if not self.isCrossKVLoaded:
             print("⛑️")
             return
         startT = timer()
-        self.obj.crossKVPredict.argtypes = [f32Ptr,
-                                            f32Ptr, f32Ptr]
+        self.obj.crossKVPredict.argtypes = None
         self.obj.crossKVPredict.restypes = None
 
-        xa = xa.contiguous()
-        xaPtr = ctypes.cast(xa.data_ptr(), f32Ptr)
-
-        self.obj.crossKVPredict(xaPtr,
-                                self.outCKPtr, self.outCVPtr)
+        self.obj.crossKVPredict()
 
         if logPredictTime:
             print(f"\tcoreml crossKV {timer()-startT:.3f}")
         totalCrossKVTime += timer()-startT
-        return self.out_cross_k_caches, self.out_cross_v_caches
+        return dummy, dummy
 
     def closeCrossKV(self):
         self.obj.closeCrossKV.argtypes = None
@@ -150,14 +139,13 @@ class Coreml():
 
         totalLoadTime += timer()-startT
 
-    def decoder256Predict(self, x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV):
+    def decoder256Predict(self, x, qk_mask):
         global totalDecoder256Time
         if not self.isDecoder256Loaded:
             print("⛑️")
             return
         startT = timer()
-        self.obj.decoder256Predict.argtypes = [f32Ptr, f32Ptr, f32Ptr, f32Ptr,
-                                               c_bool,
+        self.obj.decoder256Predict.argtypes = [f32Ptr, f32Ptr,
                                                f32Ptr, f32Ptr, f32Ptr]
         self.obj.decoder256Predict.restypes = None
 
@@ -166,14 +154,9 @@ class Coreml():
         xPtr = ctypes.cast(x.data_ptr(), f32Ptr)
         qk_mask = qk_mask.contiguous()
         qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), f32Ptr)
-        cross_k_caches = cross_k_caches.contiguous()
-        ckPtr = ctypes.cast(cross_k_caches.data_ptr(), f32Ptr)
-        cross_v_caches = cross_v_caches.contiguous()
-        cvPtr = ctypes.cast(cross_v_caches.data_ptr(), f32Ptr)
 
         # predict
-        self.obj.decoder256Predict(xPtr, qkMaskPtr, ckPtr, cvPtr,
-                                   isNewCKV,
+        self.obj.decoder256Predict(xPtr, qkMaskPtr,
                                    self.outXPtr256, self.outCHWPtr256, self.outMKVPtr256)
         if logPredictTime:
             print(f"\tcoreml decoder256 {timer()-startT:.3f}")
@@ -226,13 +209,13 @@ class Coreml():
         #if logPredictTime:
         #    print(f"\tcoreml decoder1 rearrange_mkv {timer()-startT:.3f}")
 
-    def decoder1Predict(self, x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV):
+    def decoder1Predict(self, x, qk_mask, masked_kv_caches, text_offset, isNewCKV):
         global totalDecoder1Time
         if not self.isDecoder1Loaded:
             print("⛑️")
             return
         startT = timer()
-        self.obj.decoder1Predict.argtypes = [f32Ptr, f32Ptr, f32Ptr, f32Ptr, f32Ptr,
+        self.obj.decoder1Predict.argtypes = [f32Ptr, f32Ptr, f32Ptr,
                                              c_int, c_bool,
                                              f32Ptr, f32Ptr]
         self.obj.decoder1Predict.restypes = None
@@ -244,13 +227,9 @@ class Coreml():
         qkMaskPtr = ctypes.cast(qk_mask.data_ptr(), f32Ptr)
         masked_kv_caches = masked_kv_caches.contiguous()
         mkvPtr = ctypes.cast(masked_kv_caches.data_ptr(), f32Ptr)
-        cross_k_caches = cross_k_caches.contiguous()
-        ckPtr = ctypes.cast(cross_k_caches.data_ptr(), f32Ptr)
-        cross_v_caches = cross_v_caches.contiguous()
-        cvPtr = ctypes.cast(cross_v_caches.data_ptr(), f32Ptr)
 
         # predict
-        self.obj.decoder1Predict(xPtr, qkMaskPtr, mkvPtr, ckPtr, cvPtr,
+        self.obj.decoder1Predict(xPtr, qkMaskPtr, mkvPtr,
                                  text_offset, isNewCKV,
                                  self.outXPtr1, self.outMKVPtr1)
         if logPredictTime:

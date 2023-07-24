@@ -167,7 +167,7 @@ class TextDecoder(nn.Module):
     def crossKVCaches(self, xa: Tensor):
         if self.use_coreml:
             self.coreml.loadCrossKV()
-            return self.coreml.crossKVPredict(xa)
+            return self.coreml.crossKVPredict()
 
         cross_k_caches = []
         cross_v_caches = []
@@ -267,11 +267,11 @@ class TextDecoder(nn.Module):
             if masked_kv_caches is not None and x.shape[1] == 1:
                 self.coreml.bs = x.shape[0]
                 self.coreml.loadDecoder1()
-                return self.coreml.decoder1Predict(x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV)
+                return self.coreml.decoder1Predict(x, qk_mask, masked_kv_caches, text_offset, isNewCKV)
             else:
                 self.coreml.n_alignment_head = self.alignment_heads.to_sparse().indices().shape[1]
                 self.coreml.loadDecoder256()
-                return self.coreml.decoder256Predict(x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV)
+                return self.coreml.decoder256Predict(x, qk_mask)
         ############################
 
         if x.shape[0] == 1 and x.shape[1] == 1:
