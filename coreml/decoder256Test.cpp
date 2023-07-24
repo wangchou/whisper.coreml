@@ -1,4 +1,4 @@
-#include "decoder256.h"
+#include "coreml.h"
 #include <stdlib.h>
 #include <iostream>
 #include <chrono>
@@ -13,14 +13,6 @@ float* getOnes(int count) {
 }
 
 int main() {
-    // tiny model
-    //int n_layer = 4;
-    //int n_state = 384;
-    //int bs = 1;
-    //int n_head = 6; // tiny=6, base=8, small=12, medium=16, large=20
-    //int text_offset = 10; // only for test
-    //int max_n_ctx = 256;
-    //const void* decoder = loadModel("./tiny/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head);
     // small model
     int n_layer = 12;
     int n_state = 768;
@@ -29,17 +21,8 @@ int main() {
     int text_offset = 10; // only for test
     int max_n_ctx = 256;
     int n_alignment_head = 10;
-    const void* decoder = loadModel("./small/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head, n_alignment_head);
-
-    // memory usage on large model
-    // fp32 cross_kv_caches 491MB (32 * 2 * 1500 * 1280 * 4 bytes)
-    // fp32 out_cross_head_weights 15MB (10 * 256 * 1500 * 4 bytes)
-    // fp32 out_new_masked_kv_caches 83MB
-    // fp32 ~= 600MB
-    //
-    // fp16 CVPixelBuffer ~= fp32/2 ~= 300MB
-    // total = 0.9GB + ane load model (?GB, ps: static full model = 1.47GB)
-    //       => 0.9GB ~ 2.3+GB
+    //loadCrossKV("./small/CoremlCrossKV.mlmodelc", n_layer, n_state);
+    loadDecoder256("./small/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head, n_alignment_head);
 
     float* x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
     float* qk_mask = getOnes(max_n_ctx * max_n_ctx); // (256, 256)
@@ -50,9 +33,9 @@ int main() {
     float* out_cross_head_weights = getOnes(n_alignment_head * max_n_ctx * 1500);
     float* out_new_masked_kv_caches = getOnes(n_layer * 2 * bs * max_n_ctx * n_state); // (n_layer * 2, bs, 256, n_state)
 
-    for(int i=0; i<5; i++) {
+    for(int i=0; i<1; i++) {
         chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-        predictWith(decoder, // model
+        decoder256Predict(
                 x, qk_mask, cross_k_caches, cross_v_caches,// input
                 i==0, // context parameter
                 out_x, out_cross_head_weights, out_new_masked_kv_caches // outputs
@@ -63,7 +46,7 @@ int main() {
 
     // it should match pytorch output:
     cout << " " << out_x[256*384] << " " << out_x[256*384+1] << " " << out_x[bs * 256 * 384 - 1];
-    closeModel(decoder);
+    closeDecoder256();
 }
     //n_alignment_head = {"tiny.en": 8,
     //    "tiny": 6,

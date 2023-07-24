@@ -5,7 +5,6 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from .coreml import CoremlEncoder
 from timeit import default_timer as timer
 
 def sinusoids(length, channels, max_timescale=10000):
@@ -108,12 +107,8 @@ class AudioEncoder(nn.Module):
         """
         ############################
         if self.use_coreml:
-            if self.coremlEncoder == None:
-                self.coremlEncoder = CoremlEncoder(self.n_layer, self.n_state, self.modelName)
-            result =  self.coremlEncoder.predictWith(x)
-            if self.modelName == "large":
-                self.coremlEncoder.closeModel()
-                self.coremlEncoder = None
+            self.coreml.loadEncoder()
+            result = self.coreml.encoderPredict(x)
             return result
         ############################
 

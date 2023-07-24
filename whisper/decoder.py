@@ -11,7 +11,6 @@ from torch import Tensor, nn
 from .decoding import decode as decode_function
 from .decoding import detect_language as detect_language_function
 from .transcribe import transcribe as transcribe_function
-from .coreml import CoremlDecoder, CoremlDecoder256, CoremlCrossKV
 from timeit import default_timer as timer
 
 def fuse_query_and_qk_scale(state_dict, prefix, local_metadata, strict,
@@ -167,9 +166,8 @@ class TextDecoder(nn.Module):
 
     def crossKVCaches(self, xa: Tensor):
         if self.use_coreml:
-            if self.coremlCrossKV == None:
-                self.coremlCrossKV = CoremlCrossKV(self.n_layer, self.n_state, self.modelName)
-            return self.coremlCrossKV.predictWith(xa)
+            self.coreml.loadCrossKV()
+            return self.coreml.crossKVPredict(xa)
 
         cross_k_caches = []
         cross_v_caches = []
@@ -267,16 +265,13 @@ class TextDecoder(nn.Module):
         # Coreml Decoder part
         if self.use_coreml:
             if masked_kv_caches is not None and x.shape[1] == 1:
-                if self.coremlDecoder == None:
-                    bs = x.shape[0]
-                    self.coremlDecoder = CoremlDecoder(self.n_layer, self.n_state, self.n_head, self.n_vocab, bs, self.modelName)
-                return self.coremlDecoder.predictWith(x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV)
-
+                self.coreml.bs = x.shape[0]
+                self.coreml.loadDecoder1()
+                return self.coreml.decoder1Predict(x, qk_mask, masked_kv_caches, cross_k_caches, cross_v_caches, text_offset, isNewCKV)
             else:
-                if self.coremlDecoder256 == None:
-                    n_alignment_head = self.alignment_heads.to_sparse().indices().shape[1]
-                    self.coremlDecoder256 = CoremlDecoder256(self.n_layer, self.n_state, self.n_head, n_alignment_head, self.modelName)
-                return self.coremlDecoder256.predictWith(x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV)
+                self.coreml.n_alignment_head = self.alignment_heads.to_sparse().indices().shape[1]
+                self.coreml.loadDecoder256()
+                return self.coreml.decoder256Predict(x, qk_mask, cross_k_caches, cross_v_caches, isNewCKV)
         ############################
 
         if x.shape[0] == 1 and x.shape[1] == 1:
