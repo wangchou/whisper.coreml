@@ -112,14 +112,14 @@ class AudioEncoder(nn.Module):
         ############################
 
         self.from_block_idx = 0
-        for i in range(0, self.n_layer, 4):
+        for i in range(0, self.n_layer, 12):
            self.from_block_idx = i
-           x = self.block4(x)
+           x = self.block12(x)
 
         return x
 
     # divided sub-model for speed up ANECompilerService
-    def block4(self, x: Tensor):
+    def block12(self, x: Tensor):
         if self.from_block_idx == 0:
             x = F.gelu(self.conv1(x))
             x = F.gelu(self.conv2(x))
@@ -127,10 +127,10 @@ class AudioEncoder(nn.Module):
 
             x = (x + self.positional_embedding)
 
-        for i in range(self.from_block_idx, min(self.from_block_idx + 4, self.n_layer)):
+        for i in range(self.from_block_idx, min(self.from_block_idx + 12, self.n_layer)):
             x = self.blocks[i](x)
 
-        if self.from_block_idx + 4 >= self.n_layer:
+        if self.from_block_idx + 12 >= self.n_layer:
             x = self.ln_post(x)
 
         return x

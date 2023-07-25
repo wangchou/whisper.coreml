@@ -23,10 +23,10 @@ encoder.eval()
 total_conversion_time = 0
 total_prediction_time = 0
 skip_model_load = True
-def convertBlock4(encoder, from_block_idx, skip_model_load: bool):
+def convertBlock12(encoder, from_block_idx, skip_model_load: bool):
     global total_conversion_time
     global total_prediction_time
-    print(f"- {modelName} encoder Block {from_block_idx}..<{min(from_block_idx+4, n_layer)} -")
+    print(f"- {modelName} encoder Block {from_block_idx}..<{min(from_block_idx+12, n_layer)} -")
 
     #
     # Torch Trace
@@ -38,10 +38,10 @@ def convertBlock4(encoder, from_block_idx, skip_model_load: bool):
 
     encoder.from_block_idx = from_block_idx
     traced_encoder = torch.jit.trace_module(encoder,
-                                            {'block4': (x)})
+                                            {'block12': (x)})
 
     # ct.convert only look forward func
-    traced_encoder.forward = traced_encoder.block4
+    traced_encoder.forward = traced_encoder.block12
 
     #
     # coremltools convert
@@ -102,8 +102,8 @@ def convertBlock4(encoder, from_block_idx, skip_model_load: bool):
         print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
 skip_model_load = True
-for block_idx in range(0, n_layer, 4):
-    convertBlock4(encoder, block_idx, skip_model_load)
+for block_idx in range(0, n_layer, 12):
+    convertBlock12(encoder, block_idx, skip_model_load)
 
 print("---------------------")
 print(f"{modelName} encoder total conversion time: {total_conversion_time:.3f}s")

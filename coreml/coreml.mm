@@ -29,15 +29,16 @@ MLMultiArray *inMelSegment;
 bool isEncoderPredicted = false;
 bool isEncoderLoaded = false;
 
+int blockUnit = 12;
 void loadEncoder(const char* modelFolderPath, int n_layer, int n_state) {
-    model_count = n_layer/4;
-    if (n_layer%4 > 0) {
+    model_count = n_layer/blockUnit;
+    if (n_layer%blockUnit > 0) {
         model_count++;
     } // base model with layer 6
 
     for(int i=0; i<model_count; i++) {
         CFTimeInterval startT = CACurrentMediaTime();
-        NSString *modelPathStr = [NSString stringWithFormat:@"%s/CoremlEncoder%d.mlmodelc", modelFolderPath, i*4]; // 4 blocks as sub model unit
+        NSString *modelPathStr = [NSString stringWithFormat:@"%s/CoremlEncoder%d.mlmodelc", modelFolderPath, i*blockUnit]; // n blocks as sub model unit
         if (!isEncoderLoaded) {
             NSLog(@"loading %@", modelPathStr);
         }
