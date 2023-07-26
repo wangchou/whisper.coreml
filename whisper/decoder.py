@@ -20,6 +20,17 @@ def fuse_query_and_qk_scale(state_dict, prefix, local_metadata, strict,
         if all(substr in k for substr in ['query']):
             state_dict[k] = state_dict[k] * 0.125 # qk_scale = 1/(64^0.5)
 
+# use two-levels split to reduce edge degree in graph
+# it fixes slow ANECompilerServie on medium/large model
+def twoLevelSplit(caches: Optional[Tensor], level1_split_count: int):
+    if caches is None:
+        return None
+
+    cache_splits = []
+    for splits in caches.split(level1_split_count):
+        cache_splits += splits.split(1)
+    return cache_splits
+
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
@@ -153,11 +164,10 @@ class TextDecoder(nn.Module):
         self.modelName = modelName
 
         # max token len for first time = max_prefix_len(224) + sot_len(3)
-        # not sure why... decoder227 is slower than decoder256
+        # note: not sure why... decoder227 is slower than decoder256
         self.max_n_ctx_for_1st = 256
 
-        # copyed from model, will used by word_timestamps
-        # use the last half layers for alignment by default; see `set_alignment_heads()` below
+        # copyed from Whisper.__init__, used by word_timestamps
         all_heads = torch.zeros(
             n_layer, n_head, dtype=torch.bool
         )
@@ -203,10 +213,10 @@ class TextDecoder(nn.Module):
         if text_offset == 0: # decoder256
             if xa is not None:
                 self.cross_k_caches, self.cross_v_caches = self.crossKVCaches(xa)
+
             max_n_ctx = self.max_n_ctx_for_1st
             qk_mask = (torch.ones(max_n_ctx, max_n_ctx) * -np.inf).triu_(1)
             qk_mask[:, n_ctx:] = -np.inf
-            ## fix shape by appending zeros to max_n_ctx
             x = torch.cat([x, torch.zeros(n_batch, max_n_ctx-n_ctx, self.n_state)], dim=1)
 
             # predict beam by beam for reuse decoder256 coreml model for bs=1 and bs=5
@@ -239,7 +249,7 @@ class TextDecoder(nn.Module):
                                  torch.ones((1, 448-text_offset)) * -np.inf,
                                  torch.FloatTensor([[0]])],
                                  dim=1)
-            # nn.Linear trick
+            # nn.Linear speedup trick
             if x.shape[0] == 1 and x.shape[1] == 1:
                 qk_mask = torch.cat([qk_mask, torch.FloatTensor([[1]]) * -np.inf], dim=1)
 
@@ -260,11 +270,10 @@ class TextDecoder(nn.Module):
                       masked_kv_caches: Optional[Tensor] = None,
                       cross_k_caches: Optional[Tensor] = None,
                       cross_v_caches: Optional[Tensor] = None,
-                      text_offset: Optional[int] = None, # only for coremlDecoder1
-                      beam_idx: Optional[int] = None, # only for coremlDecoder256
+                      text_offset: Optional[int] = None, # for objc part of coremlDecoder1
+                      beam_idx: Optional[int] = None,    # for objc part of coremlDecoder256
                       ):
 
-        ############################
         # Coreml Decoder part
         if self.use_coreml:
             if masked_kv_caches is not None and x.shape[1] == 1:
@@ -274,7 +283,6 @@ class TextDecoder(nn.Module):
                 self.coreml.n_alignment_head = self.alignment_heads.to_sparse().indices().shape[1]
                 self.coreml.loadDecoder256()
                 return self.coreml.decoder256Predict(x, qk_mask, beam_idx)
-        ############################
 
         if x.shape[0] == 1 and x.shape[1] == 1:
             # nn.Linear speed up trick
@@ -285,24 +293,11 @@ class TextDecoder(nn.Module):
         cross_head_weights = []
         new_masked_kv_caches = []
 
-        # use two-levels split to reduce degree of edges in graph
-        # it fixes slow ANECompilerServie on medium/large model
-        if masked_kv_caches is not None:
-            mkv_caches = []
-            for split8 in masked_kv_caches.split(8):
-                mkv_caches += split8.split(1)
-        if cross_k_caches is not None:
-            ck_caches = []
-            for split4 in cross_k_caches.split(4):
-                ck_caches += split4.split(1)
-            cv_caches = []
-            for split4 in cross_v_caches.split(4):
-                cv_caches += split4.split(1)
+        mkv_caches = twoLevelSplit(masked_kv_caches, 8)
+        ck_caches = twoLevelSplit(cross_k_caches, 4)
+        cv_caches = twoLevelSplit(cross_v_caches, 4)
 
         for layer_idx, block in enumerate(self.blocks):
-            #if layer_idx >= 4:
-            #    break
-            # mk = masked_key_cache, ck = cross_key_cache
             mk = mv = ck = cv = None
             if masked_kv_caches is not None:
                 mk = mkv_caches[layer_idx*2].squeeze(0)
@@ -314,10 +309,10 @@ class TextDecoder(nn.Module):
 
             x, cross_qk, new_mk, new_mv= block(x, qk_mask, mk, mv, ck, cv)
 
-            # for word_timestamps
             for head_idx in range(self.n_head):
                 if self.alignment_heads[layer_idx][head_idx]:
                     cross_head_weights.append(cross_qk[0][head_idx])
+
             new_masked_kv_caches.append(new_mk)
             new_masked_kv_caches.append(new_mv)
 
@@ -331,10 +326,11 @@ class TextDecoder(nn.Module):
             logits = torch.cat([x @ split.transpose(0,1) for split in splits], dim=2)
 
             if x.shape[0] == 1:
-                # remove redudant data from Linear speed up trick
+                # end Linear speed up trick
                 logits = logits.split(1, dim=1)[0]
                 new_masked_kv_caches = new_masked_kv_caches.split(1, dim=2)[0]
 
             return logits, new_masked_kv_caches
-        else: # decoder256 and decoder call from add timestamp
+        else: # decoder256
             return x, cross_head_weights, new_masked_kv_caches
+
