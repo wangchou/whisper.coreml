@@ -148,6 +148,7 @@ class PyTorchInference(Inference):
 
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
         #print("---", self.model.text_offset, "---")
+        #print(tokens)
         if tokens.shape[-1] > self.initial_token_length:
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
@@ -161,6 +162,8 @@ class PyTorchInference(Inference):
                                                                  self.model.text_offset,
                                                                  self.model.isNewCKV,
                                                                  self.model.masked_kv_caches)
+
+        #print(f"predict tooks {timer()-startT:.3f}")
         #startT = timer()
         n_ctx = tokens.shape[1]
         if n_ctx == 1 and self.model.text_offset > 0:

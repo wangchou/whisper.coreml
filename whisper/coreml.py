@@ -48,7 +48,7 @@ class Coreml():
     def encoderPredict(self, melSegment):
         global totalEncoderTime
         if not self.isEncoderLoaded:
-            print("⛑️")
+            self.loadEncoder()
             return
         startT = timer()
         self.obj.encoderPredict.argtypes = [f32Ptr]
@@ -65,9 +65,12 @@ class Coreml():
         return dummy
 
     def closeEncoder(self):
+        if not self.isEncoderLoaded:
+            return
         self.obj.closeEncoder.argtypes = None
         self.obj.closeEncoder.restypes = None
         self.obj.closeEncoder()
+        self.isEncoderLoaded = False
 
 ### CrossKV #####################################
     def loadCrossKV(self):
@@ -90,7 +93,7 @@ class Coreml():
     def crossKVPredict(self):
         global totalCrossKVTime
         if not self.isCrossKVLoaded:
-            print("⛑️")
+            self.loadCrossKV()
             return
         startT = timer()
         self.obj.crossKVPredict.argtypes = None
@@ -104,9 +107,12 @@ class Coreml():
         return dummy, dummy
 
     def closeCrossKV(self):
+        if not self.isCrossKVLoaded:
+            return
         self.obj.closeCrossKV.argtypes = None
         self.obj.closeCrossKV.restypes = None
         self.obj.closeCrossKV()
+        self.isCrossKVLoaded = False
 
 ### Decoder256 #####################################
     def loadDecoder256(self):
@@ -139,7 +145,7 @@ class Coreml():
     def decoder256Predict(self, x, qk_mask, beam_idx: int):
         global totalDecoder256Time
         if not self.isDecoder256Loaded:
-            print("⛑️")
+            self.loadDecoder256()
             return
         startT = timer()
         self.obj.decoder256Predict.argtypes = [f32Ptr, f32Ptr,
@@ -162,9 +168,12 @@ class Coreml():
         return self.out_x256, self.out_cross_head_weights256, dummy
 
     def closeDecoder256(self):
+        if not self.isDecoder256Loaded:
+            return
         self.obj.closeDecoder256.argtypes = None
         self.obj.closeDecoder256.restypes = None
         self.obj.closeDecoder256()
+        self.isDecoder256Loaded = False
 
 ### Decoder1 #####################################
     def loadDecoder1(self):
@@ -209,7 +218,7 @@ class Coreml():
     def decoder1Predict(self, x, qk_mask, text_offset):
         global totalDecoder1Time
         if not self.isDecoder1Loaded:
-            print("⛑️")
+            self.loadDecoder1()
             return
         startT = timer()
         self.obj.decoder1Predict.argtypes = [f32Ptr, f32Ptr,
@@ -234,9 +243,12 @@ class Coreml():
         return self.out_x1, self.new_masked_kv_caches1
 
     def closeDecoder1(self):
+        if not self.isDecoder1Loaded:
+            return
         self.obj.closeDecoder1.argtypes = None
         self.obj.closeDecoder1.restypes = None
         self.obj.closeDecoder1()
+        self.isDecoder1Loaded = False
 
 
 ########################################

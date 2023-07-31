@@ -19,6 +19,7 @@ MLMultiArray *arrayXa; // encoder out, crossKV in
 MLMultiArray *arrayCK; // crossKV out, decoder in
 MLMultiArray *arrayCV; // crossKV out, decoder in
 MLMultiArray *arrayMKV448; // decoder256 outMKV256 copyed to it, and use as decoder1 input
+uint16* tmpMKV[5]; // (bs, 448, n_state)
 
 /* Encoder ------------------------------------------ */
 int model_count;
@@ -56,7 +57,9 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state) {
     }
 
     inMelSegment = getPixelBufferArray3(1, 80, 3000);
-    arrayXa = getPixelBufferArray3(1, 1500, n_state);
+    if (arrayXa == nil) {
+        arrayXa = getPixelBufferArray3(1, 1500, n_state);
+    }
 
     isEncoderLoaded = true;
 }
@@ -93,19 +96,21 @@ void encoderPredict(float* melSegment) {
     }
 
     if (!isEncoderPredicted) {
-        void * ptr = arrayXa.dataPointer;
-        unlock(arrayXa);
-        unlock(inMelSegment);
         isEncoderPredicted = true;
     }
 }
 
 void closeEncoder() {
+    if (encoders[0] == nil) {
+        return;
+    }
+    NSLog(@"closeEncoder");
     for(int model_idx=0; model_idx < model_count; model_idx++) {
         CFRelease(encoders[model_idx]);
+        encoders[model_idx] = nil;
     }
     CFRelease(inMelSegment.pixelBuffer);
-    CFRelease(arrayXa.pixelBuffer);
+    inMelSegment = nil;
     isEncoderLoaded = false;
     isEncoderPredicted = false;
 }
@@ -135,8 +140,10 @@ void loadCrossKV(const char* modelPath, int n_layer, int n_state) {
 
     int n_head = n_state / 64;
 
-    arrayCK = getPixelBufferArray4(n_layer, n_head, 64, 1500);
-    arrayCV = getPixelBufferArray4(n_layer, n_head, 1500, 64);
+    if (arrayCK==nil) {
+        arrayCK = getPixelBufferArray4(n_layer, n_head, 64, 1500);
+        arrayCV = getPixelBufferArray4(n_layer, n_head, 1500, 64);
+    }
     if (!isCrossKVLoaded) {
         NSLog(@"loaded in %.3fs", CACurrentMediaTime() - startT);
     }
@@ -162,19 +169,18 @@ void crossKVPredict() {
     }
 
     if (!isCrossKVPredicted) {
-        void * ptr1 = arrayCK.dataPointer;
-        void * ptr2 = arrayCV.dataPointer;
-        unlock(arrayCK);
-        unlock(arrayCV);
         isCrossKVPredicted = true;
     }
 }
 
 void closeCrossKV() {
+    if (crossKV == nil) {
+        return;
+    }
+    NSLog(@"closeCrossKV");
     CFRelease(crossKV);
+    crossKV = nil;
 
-    CFRelease(arrayCK.pixelBuffer);
-    CFRelease(arrayCV.pixelBuffer);
     isCrossKVLoaded = false;
     isCrossKVPredicted = false;
 }
@@ -197,7 +203,6 @@ bool isDecoder256Loaded = false;
 int _n_layer;
 int _n_state;
 int bs = 1;
-uint16* tmpMKV[5]; // (bs, 448, n_state)
 
 void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head, int n_alignment_head, int decoder1_bs) {
     CFTimeInterval startT = CACurrentMediaTime();
@@ -230,11 +235,15 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
     _n_layer = n_layer;
     _n_state = n_state;
     bs = decoder1_bs;
-    arrayMKV448 = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
+    if (arrayMKV448 == nil) {
+        arrayMKV448 = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
+    }
 
     // tmpMKV for rearrange_mkv
-    for(int bi=0; bi<bs; bi++) {
-        tmpMKV[bi] = (uint16*) malloc(448 * n_state * sizeof(uint16));
+    if (tmpMKV[0] != nil) {
+        for(int bi=0; bi<bs; bi++) {
+            tmpMKV[bi] = (uint16*) malloc(448 * n_state * sizeof(uint16));
+        }
     }
 
     if (!isDecoder256Loaded) {
@@ -284,7 +293,7 @@ void decoder256Predict(
     float* out_x,
     float* out_cross_head_weights,
     int beam_idx // for copy to arrayMKV448 as decoder1 input
-) {
+    ) {
     CFTimeInterval startT = CACurrentMediaTime();
 
     // input arrays
@@ -292,7 +301,6 @@ void decoder256Predict(
     float32ToMa(qk_mask, inQk_mask256);
 
     CoremlDecoder256Input* input = [[CoremlDecoder256Input alloc] initWithX:inX256 qk_mask:inQk_mask256 cross_k_caches:arrayCK cross_v_caches:arrayCV];
-
     MLPredictionOptions* options = [MLPredictionOptions alloc];
 
     NSDictionary *outputBackings = @{
@@ -303,6 +311,7 @@ void decoder256Predict(
     [options setOutputBackings:outputBackings];
 
     NSError *error = nil;
+
     [(__bridge id)decoder256 predictionFromFeatures:input options:options error:&error];
 
     if(error) {
@@ -329,24 +338,30 @@ void decoder256Predict(
     }
 
     if (!isDecoder256Predicted) {
-        unlock(outX256);
-        unlock(outCHW256);
-        unlock(outMKV256);
-        unlock(arrayMKV448);
         isDecoder256Predicted = true;
     }
 }
 
 void closeDecoder256() {
+    if (decoder256 == nil) {
+        return;
+    }
+    NSLog(@"closeDecoder256");
     CFRelease(decoder256);
+    decoder256 = nil;
     CFRelease(inX256.pixelBuffer);
+    inX256 = nil;
 
     CFRelease(outX256.pixelBuffer);
+    outX256 = nil;
+
     CFRelease(outCHW256.pixelBuffer);
+    outCHW256 = nil;
     CFRelease(outMKV256.pixelBuffer);
-    for(int i=0; i<bs; i++) {
-        free(tmpMKV[i]);
-    }
+    outMKV256 = nil;
+    //for(int i=0; i<bs; i++) {
+    //    free(tmpMKV[i]);
+    //}
 
     isDecoder256Loaded = false;
     isDecoder256Predicted = false;
@@ -413,7 +428,7 @@ void decoder1Predict(
     int text_offset,
     float* out_x,
     float* out_new_masked_kv_caches
-) {
+    ) {
     //CFTimeInterval startT = CACurrentMediaTime();
 
     float32ToMa(x, inX_1);
@@ -456,19 +471,26 @@ void decoder1Predict(
     //NSLog(@"\toutput fp16->fp32 %.4f", CACurrentMediaTime() - startT);
 
     if (!isDecoder1Predicted) {
-        unlock(outX_1);
-        unlock(outMKV_1);
         isDecoder1Predicted = true;
     }
 }
 
 void closeDecoder1() {
+    if (decoder1 == nil) {
+        return;
+    }
+    NSLog(@"closeDecoder1");
     CFRelease(decoder1);
+    decoder1 = nil;
     CFRelease(inX_1.pixelBuffer);
+    inX_1 = nil;
     CFRelease(inQk_mask_1.pixelBuffer);
+    inQk_mask_1 = nil;
 
     CFRelease(outX_1.pixelBuffer);
+    outX_1 = nil;
     CFRelease(outMKV_1.pixelBuffer);
+    outMKV_1 = nil;
 
     isDecoder1Loaded = false;
     isDecoder1Predicted = false;

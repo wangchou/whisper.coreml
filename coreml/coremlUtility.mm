@@ -1,4 +1,5 @@
 #import "coremlUtility.h"
+#include <CoreML/CoreML.h>
 
 void float32ToFloat16(const float* fp32, const uint16* fp16, int count) {
     vImage_Buffer fp32Buffer = { (void *)fp32, 1, UInt(count), count * 4 };
@@ -102,17 +103,28 @@ CVPixelBufferRef getPixelBuffer(int dim1, int dim2) {
 
 MLMultiArray* getPixelBufferArray2(int dim1, int dim2) {
     CVPixelBufferRef pixelBuffer = getPixelBuffer(dim2, dim1);
-    return [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2)]];
+    MLMultiArray* ma = [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2)]];
+
+    // unlock once to avoid it locked by dataPointer later
+    void * ptr = ma.dataPointer;
+    unlock(ma);
+    return ma;
 }
 
 MLMultiArray* getPixelBufferArray3(int dim1, int dim2, int dim3) {
     CVPixelBufferRef pixelBuffer = getPixelBuffer(dim3, dim1 * dim2);
-    return [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3)]];
+    MLMultiArray* ma = [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3)]];
+    void * ptr = ma.dataPointer;
+    unlock(ma);
+    return ma;
 }
 
 MLMultiArray* getPixelBufferArray4(int dim1, int dim2, int dim3, int dim4) {
     CVPixelBufferRef pixelBuffer = getPixelBuffer(dim4, dim1 * dim2 * dim3);
-    return [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3), @(dim4)]];
+    MLMultiArray* ma = [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3), @(dim4)]];
+    void * ptr = ma.dataPointer;
+    unlock(ma);
+    return ma;
 }
 
 MLMultiArray* getArray1(void* dataPtr, int dim1, MLMultiArrayDataType dataType) {
