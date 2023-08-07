@@ -68,9 +68,8 @@ def convertBlock12(encoder, from_block_idx, skip_model_load: bool):
 
     conversion_time = timer() - startT
     total_conversion_time += conversion_time
-    print(" ")
     print(f"conversion time: {conversion_time:.3f}s")
-
+    print(" ")
 
     folder_path = f"coreml/{modelName}"
     if not os.path.exists(folder_path):

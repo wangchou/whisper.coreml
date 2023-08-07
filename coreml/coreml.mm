@@ -42,10 +42,15 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state) {
         NSString *modelPathStr = [NSString stringWithFormat:@"%s/CoremlEncoder%d.mlmodelc", modelFolderPath, i*blockUnit]; // n blocks as sub model unit
         if (!isEncoderLoaded) {
             NSLog(@"loading %@", modelPathStr);
+        } else {
+            return;
         }
         NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
         NSError *error = nil;
-        encoders[i] = CFBridgingRetain([MLModel modelWithContentsOfURL:modelURL error:&error]);
+        MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
+        // MLComputeUnitsCPUOnly, MLComputeUnitsCPUAndGPU, MLComputeUnitsAll,  MLComputeUnitsCPUAndNeuralEngine
+        config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
+        encoders[i] = CFBridgingRetain([MLModel modelWithContentsOfURL:modelURL configuration:config error:&error]);
 
         if(error) {
             NSLog(@"Error load model from %@, %@", modelPathStr, error);
@@ -126,6 +131,8 @@ void loadCrossKV(const char* modelPath, int n_layer, int n_state) {
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isCrossKVLoaded) {
         NSLog(@"loading %@", modelPathStr);
+    } else {
+        return;
     }
     NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
 
@@ -209,13 +216,19 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isDecoder256Loaded) {
         NSLog(@"loading %@", modelPathStr);
+    } else {
+        return;
     }
     NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
 
     NSError *error = nil;
     MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
     // MLComputeUnitsCPUOnly, MLComputeUnitsCPUAndGPU, MLComputeUnitsAll,  MLComputeUnitsCPUAndNeuralEngine
-    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
+
+    // memory issue on 16GB Device, cannot run both decoder1 and decoder256 on ANE
+    bool isLargeModel = n_state == 1280;
+    config.computeUnits = isLargeModel ? MLComputeUnitsCPUAndGPU : MLComputeUnitsCPUAndNeuralEngine;
+
     decoder256 = CFBridgingRetain([[CoremlDecoder256 alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
     if(error) {
       NSLog(@"Error load model from %s, %@", modelPath, error);
@@ -390,6 +403,8 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (!isDecoder1Loaded) {
         NSLog(@"loading %@", modelPathStr);
+    } else {
+        return;
     }
     NSURL* modelURL = [NSURL fileURLWithPath: modelPathStr];
 
