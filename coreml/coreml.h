@@ -27,8 +27,7 @@ void decoder1Predict(
     float* x, // (bs, 1, n_state)
     float* qk_mask, // (1, 449)
     int text_offset,
-    float* out_x, // (bs, 1, n_state)
-    float* out_new_masked_kv_caches // (n_layer * 2, bs, 1, n_state)
+    float* out_x // (bs, 1, n_state)
 );
 
 #if __cplusplus

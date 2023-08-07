@@ -196,7 +196,6 @@ class Coreml():
         self.out_x1 = torch.ones((bs, 1, self.n_vocab), dtype=dtype1).contiguous()
         self.new_masked_kv_caches1 = torch.ones((n_layer * 2, bs, 1, n_state), dtype=dtype1).contiguous()
         self.outXPtr1 = ctypes.cast(self.out_x1.data_ptr(), f32Ptr)
-        self.outMKVPtr1 = ctypes.cast(self.new_masked_kv_caches1.data_ptr(), f32Ptr)
         self.isDecoder1Loaded = True
         totalLoadTime += timer()-startT
 
@@ -223,7 +222,7 @@ class Coreml():
         startT = timer()
         self.obj.decoder1Predict.argtypes = [f32Ptr, f32Ptr,
                                              c_int,
-                                             f32Ptr, f32Ptr]
+                                             f32Ptr]
         self.obj.decoder1Predict.restypes = None
 
         # prepare inputs
@@ -235,7 +234,7 @@ class Coreml():
         # predict
         self.obj.decoder1Predict(xPtr, qkMaskPtr,
                                  text_offset,
-                                 self.outXPtr1, self.outMKVPtr1)
+                                 self.outXPtr1)
         if logPredictTime:
             print(f"\tcoreml decoder1 {timer()-startT:.3f}")
 

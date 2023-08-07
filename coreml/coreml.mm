@@ -426,8 +426,7 @@ void decoder1Predict(
     float* x, // (bs, 1, n_state)
     float* qk_mask, // (1, 449)
     int text_offset,
-    float* out_x,
-    float* out_new_masked_kv_caches
+    float* out_x
     ) {
     //CFTimeInterval startT = CACurrentMediaTime();
 
@@ -453,8 +452,6 @@ void decoder1Predict(
     //NSLog(@"\tpredict           %.4f", CACurrentMediaTime() - startT);
     //startT = CACurrentMediaTime();
     maToFloat32(outX_1, out_x);
-
-    maToFloat32(outMKV_1, out_new_masked_kv_caches);
 
     // mkv[:, :, text_offset] = new_mkv
     // arrayMKV448:  (n_layer * 2) * bs * 448 * n_state
