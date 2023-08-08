@@ -65,7 +65,6 @@ class Whisper(nn.Module):
         self.text_offset = 0
         self.masked_kv_caches = None#torch.zeros((2*self.n_layer, 5, 448, self.n_state))
         self.cross_kv_caches = None
-        self.isNewCKV = True
 
     def set_alignment_heads(self, dump: bytes):
         array = np.frombuffer(
@@ -110,18 +109,12 @@ class Whisper(nn.Module):
     def forward(
         self, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        #startT = timer()
         if self.text_offset == 0:
             self.masked_kv_caches = None
         output, cross_qks, new_masked_kv_caches = self.decoder(tokens,
                                                                None, # xa = None => use previous caches
                                                                self.text_offset,
-                                                               self.isNewCKV,
                                                                self.masked_kv_caches)
-        # this only called once in each add_word_timestamps,
-        # => no next call
-        # => no need for update self.xxx_cache
-        #print(f"Model.forward tooks {timer()-startT:.4f}")
         return output, cross_qks
 
     @property

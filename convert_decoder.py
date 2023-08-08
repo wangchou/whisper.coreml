@@ -24,8 +24,6 @@ decoder = model.decoder
 decoder.eval()
 
 inType=np.float16
-# coreml has some issue when output type = fp16 when using ane or gpu
-# https://github.com/apple/coremltools/issues/1893
 outType=np.float16
 
 # input data for trace
@@ -80,24 +78,4 @@ print(f"{modelName} bs={bs} decoder1 conversion time: {timer()-startT:.3f}s")
 folder_path = f"coreml/{modelName}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
-decoder.save(f"{folder_path}/CoremlDecoder.mlpackage")
-
-## test accuracy
-#torch_output = traced_decoder.forward(x, xa, qk_mask, masked_kv_caches, cross_kv_caches)[0]
-#print(torch_output.shape)
-#print("torch model output:", torch_output[:,0,:2], torch_output[4,0,-1])
-#
-# this generate wrong result after first row, because of coremltools fp16 bug
-# https://github.com/apple/coremltools/issues/1893
-#
-#coreml_output = torch.from_numpy(
-#        decoder.predict({'x': x,
-#                         'xa': xa,
-#                         'qk_mask': qk_mask,
-#                         'masked_kv_caches': masked_kv_caches,
-#                         'cross_kv_caches':cross_kv_caches})['out_x']
-#)
-#print(f"coreml {modelName} model output:", coreml_output[:,0,:2])
-#diff = torch.abs(torch_output - coreml_output).detach()
-#print("diff avg,max:", torch.mean(diff), torch.max(diff))
-#print("")
+decoder.save(f"{folder_path}/Decoder.mlpackage")

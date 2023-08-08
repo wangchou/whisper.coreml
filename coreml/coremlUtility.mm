@@ -5,11 +5,9 @@ void float32ToFloat16(const float* fp32, const uint16* fp16, int count) {
     vImage_Buffer fp32Buffer = { (void *)fp32, 1, UInt(count), count * 4 };
     vImage_Buffer fp16Buffer = { (void *)fp16, 1, UInt(count), count * 2 };
 
-    //CFTimeInterval startT = CACurrentMediaTime();
     if (vImageConvert_PlanarFtoPlanar16F(&fp32Buffer, &fp16Buffer, 0) != kvImageNoError) {
         printf("float32toFloat16 error");
     }
-    //NSLog(@"fp32tofp16 count=%d, time %.3f", count, CACurrentMediaTime() - startT);
 }
 
 void float16ToFloat32(const uint16* fp16, const float* fp32, int count) {

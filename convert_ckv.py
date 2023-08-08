@@ -21,8 +21,6 @@ decoder = model.decoder
 decoder.eval()
 
 inType=np.float16
-# coreml has some issue when output type = fp16 when using ane or gpu
-# https://github.com/apple/coremltools/issues/1893
 outType=np.float16
 
 bs = 1 # beam_size
@@ -60,22 +58,4 @@ print(f"{modelName} crossKVCaches conversion time: {timer()-startT:.3f}s")
 folder_path = f"coreml/{modelName}"
 if not os.path.exists(folder_path):
     os.mkdir(folder_path)
-decoder.save(f"{folder_path}/CoremlCrossKV.mlpackage")
-
-## test accuracy
-#torch_output = traced_decoder.forward(x, xa, qk_mask)[0]
-#print("torch model output:", torch_output[:,0,:2], torch_output[:,max_n_ctx-1,n_state-1])
-#print(f"torch predicted {timer()-startT:.3f}")
-
-# coremltools has some issue on np.float16 output
-# it will took so long to convert fp16 to fp32 for python
-#coreml_output = torch.from_numpy(
-#        decoder.predict({'x': x,
-#                         'xa': xa,
-#                         'qk_mask': qk_mask})['out_x']
-#)
-
-#print(f"coreml predicted {timer()-startT:.3f}")
-#print(f"coreml {modelName} model output:", coreml_output[:,0,:2], coreml_output[:,max_n_ctx-1,n_state-1])
-#diff = torch.abs(torch_output - coreml_output).detach()
-#print("diff avg,max:", torch.mean(diff), torch.max(diff))
+decoder.save(f"{folder_path}/CrossKV.mlpackage")

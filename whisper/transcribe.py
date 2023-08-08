@@ -29,6 +29,7 @@ from .utils import (
     str2bool,
 )
 from .coreml import showCoremlPredictTime
+from inspect import currentframe, getframeinfo
 
 if TYPE_CHECKING:
     from .model import Whisper
@@ -236,7 +237,6 @@ def transcribe(
             decode_options["prompt"] = all_tokens[prompt_reset_since:]
             result: DecodingResult = decode_with_fallback(mel_segment)
             tokens = torch.tensor(result.tokens)
-            print(f"\n{timer() - startT:.3f} predicted {seek}")
 
             if no_speech_threshold is not None:
                 # no voice activity check
@@ -338,7 +338,6 @@ def transcribe(
                     )
                     if seek_shift > 0:
                         seek = previous_seek + seek_shift
-                print(f"{timer()-startT:.3f} word timestamps added")
 
             if verbose:
                 for segment in current_segments:
@@ -461,12 +460,13 @@ def cli():
 
     for audio_path in args.pop("audio"):
         startT = timer()
+        frameinfo = getframeinfo(currentframe())
         result = transcribe(model, audio_path, temperature=temperature, **args)
-        print(f"---\ntotal time on transcribe(): {timer() - startT: .3f}\n")
+        print(f"---------------------------")
+        print(f"transcribe() took   {timer() - startT: .3f}s ({frameinfo.filename}:{frameinfo.lineno+1})\n")
         if use_coreml:
             showCoremlPredictTime()
         writer(result, audio_path, writer_args)
-
 
 if __name__ == "__main__":
     cli()

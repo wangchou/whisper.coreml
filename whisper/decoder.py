@@ -16,7 +16,6 @@ from timeit import default_timer as timer
 def fuse_query_and_qk_scale(state_dict, prefix, local_metadata, strict,
                             missing_keys, unexpected_keys, error_msgs):
     for k in state_dict:
-
         if all(substr in k for substr in ['query']):
             state_dict[k] = state_dict[k] * 0.125 # qk_scale = 1/(64^0.5)
 
@@ -49,10 +48,6 @@ class MultiHeadAttention(nn.Module):
         cache_k: Optional[Tensor] = None,
         cache_v: Optional[Tensor] = None,
     ):
-        # x_shape
-        # decoder1:   (bs,    1, 384)
-        # decoder256: (1,  256, 384), force bs=1 for speedup conversion
-
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
@@ -167,7 +162,7 @@ class TextDecoder(nn.Module):
         # note: not sure why... decoder227 is slower than decoder256
         self.max_n_ctx_for_1st = 256
 
-        # copyed from Whisper.__init__, used by word_timestamps
+        # copyed from Whisper.__init__, will used by word_timestamps
         all_heads = torch.zeros(
             n_layer, n_head, dtype=torch.bool
         )
@@ -194,7 +189,6 @@ class TextDecoder(nn.Module):
     def forward(self, x: Tensor,
                 xa: Optional[Tensor],
                 text_offset: Tensor,
-                isNewCKV: Tensor,
                 masked_kv_caches: Optional[Tensor] = None):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)

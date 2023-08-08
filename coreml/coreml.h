@@ -13,9 +13,9 @@ void crossKVPredict();
 void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head, int n_alignment_head, int beam_size);
 void closeDecoder256();
 void decoder256Predict(
-    float* x, // (1, 256, n_state)
+    float* x,       // (1, 256, n_state)
     float* qk_mask, // (256, 256)
-    float* out_x, // (1, 256, n_state)
+    float* out_x,   // (1, 256, n_state)
     float* out_cross_head_weights, // (n__alignment_head, 256, 1500)
     int beam_idx
 );
@@ -24,10 +24,10 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
 void closeDecoder1();
 void rearrange_mkv(int* indices, int text_offset);
 void decoder1Predict(
-    float* x, // (bs, 1, n_state)
+    float* x,       // (bs, 1, n_state)
     float* qk_mask, // (1, 449)
     int text_offset,
-    float* out_x // (bs, 1, n_state)
+    float* out_x    // (bs, 1, n_state)
 );
 
 #if __cplusplus

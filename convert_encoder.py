@@ -48,7 +48,6 @@ def convertBlock12(encoder, from_block_idx, skip_model_load: bool):
     #
     pipeline = ct.PassPipeline.CLEANUP
     pipeline.insert_pass(-1, "common::add_fp16_cast") # fp16 for ane
-    #pipeline.set_options("common::add_fp16_cast", {"skip_ops_by_type": "layer_norm,softmax"})
     pipeline.remove_passes({
         # fix complex graph caused by speedup_conversion_workaround
         "common::const_deduplication",
@@ -74,7 +73,7 @@ def convertBlock12(encoder, from_block_idx, skip_model_load: bool):
     folder_path = f"coreml/{modelName}"
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
-    encoder.save(f"{folder_path}/CoremlEncoder{from_block_idx}.mlpackage")
+    encoder.save(f"{folder_path}/Encoder{from_block_idx}.mlpackage")
 
     if not skip_model_load:
         #
@@ -109,9 +108,3 @@ print(f"{modelName} encoder total conversion time: {total_conversion_time:.3f}s"
 if not skip_model_load:
     print(f"{modelName} encoder total prediction_time time: {total_prediction_time:.3f}s")
 print("")
-# note
-# conversion time on Macbook M1 Air 16GB
-# tiny:        7s
-# small:      36s (coremltools: 0s + ANECompilerService: 36s), predict: 115ms
-# medium:    101s (12s + 89s), 344ms
-# large:     178s (24s + 154s, use 6GB memory), 628ms

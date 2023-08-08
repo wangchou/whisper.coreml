@@ -16,7 +16,7 @@ $(MODEL)/coreml.so: coreml.h coreml.mm
 		rm -rf $$mlmodel;\
     done
 
-	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/coreml.mm ${@D}/coremlUtility.mm ${@D}/CoremlEncoder0.m ${@D}/CoremlCrossKV.m ${@D}/CoremlDecoder.m ${@D}/CoremlDecoder256.m -o ${@D}/coreml.so -framework Foundation -framework CoreML -framework Accelerate
+	clang -shared -undefined dynamic_lookup -fPIC -fobjc-arc ${@D}/coreml.mm ${@D}/coremlUtility.mm ${@D}/Encoder0.m ${@D}/CrossKV.m ${@D}/Decoder.m ${@D}/Decoder256.m -o ${@D}/coreml.so -framework Foundation -framework CoreML -framework Accelerate
 
 clean:
 	rm -f $(MODEL)/*.so

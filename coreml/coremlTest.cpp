@@ -18,6 +18,8 @@ int n_states[] = {384, 512, 768, 1024, 1280};
 int n_heads[] = {6, 8, 12, 16, 20};
 int n_alignment_heads[] = {6, 8, 10, 6, 23};
 
+// This only test the prediction speed,
+// make sure all runs on ANE correctly
 int main() {
     enum ModelSize modelSize = Large;
     int n_layer = n_layers[modelSize];
@@ -26,7 +28,7 @@ int main() {
     int n_alignment_head = n_alignment_heads[modelSize];
     int bs = 1;
     int beam_idx = 0; // decoder256Predict
-    int text_offset = 10; // only for test
+    int text_offset = 10;
     int n_vocab = 51865; //multi-lang: 51865, en only: 51864
     int max_n_ctx = 256;
 
