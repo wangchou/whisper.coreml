@@ -13,6 +13,7 @@ from .decoding import DecodingOptions, DecodingResult, decode, detect_language
 from .model import ModelDimensions, Whisper
 from .transcribe import transcribe
 from .version import __version__
+from .coreml import Coreml
 
 _MODELS = {
     "tiny.en": "https://openaipublic.azureedge.net/main/whisper/models/d3dd57d32accea0b295c96e26691aa14d8822fac7d9d27d5dc00b4ca2826dd03/tiny.en.pt",
@@ -99,6 +100,7 @@ def load_model(
     device: Optional[Union[str, torch.device]] = None,
     download_root: str = None,
     in_memory: bool = False,
+    use_coreml: bool = False,
 ) -> Whisper:
     """
     Load a Whisper ASR model
@@ -145,10 +147,32 @@ def load_model(
     del checkpoint_file
 
     dims = ModelDimensions(**checkpoint["dims"])
-    model = Whisper(dims)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model = Whisper(dims, use_coreml, name)
+    model_state_dict = checkpoint["model_state_dict"]
+    if use_coreml:
+        model_state_dict = skip_coreml_load(model_state_dict)
+    model.load_state_dict(model_state_dict)
 
     if alignment_heads is not None:
         model.set_alignment_heads(alignment_heads)
 
+    if use_coreml:
+        coreml = Coreml(dims.n_text_layer,
+                        dims.n_text_state,
+                        dims.n_text_head,
+                        dims.n_vocab,
+                        name)
+        model.encoder.coreml = coreml
+        model.decoder.coreml = coreml
+
     return model.to(device)
+
+def skip_coreml_load(state_dict):
+    keys = list(state_dict.keys())
+    for k in keys:
+        is_encoder = all(substr in k for substr in ['encoder'])
+        is_decoder_block = all(substr in k for substr in ['decoder.block'])
+
+        if is_encoder or is_decoder_block:
+            del state_dict[k]
+    return state_dict

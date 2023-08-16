@@ -28,10 +28,13 @@ from .utils import (
     optional_int,
     str2bool,
 )
+from .coreml import showCoremlPredictTime
+from inspect import currentframe, getframeinfo
 
 if TYPE_CHECKING:
     from .model import Whisper
 
+from timeit import default_timer as timer
 
 def transcribe(
     model: "Whisper",
@@ -106,6 +109,7 @@ def transcribe(
     A dictionary containing the resulting text ("text") and segment-level details ("segments"), and
     the spoken language ("language"), which is detected when `decode_options["language"]` is None.
     """
+    startT = timer()
     dtype = torch.float16 if decode_options.get("fp16", True) else torch.float32
     if model.device == torch.device("cpu"):
         if torch.cuda.is_available():
@@ -318,7 +322,6 @@ def transcribe(
                     segments=current_segments,
                     model=model,
                     tokenizer=tokenizer,
-                    mel=mel_segment,
                     num_frames=segment_size,
                     prepend_punctuations=prepend_punctuations,
                     append_punctuations=append_punctuations,
@@ -413,8 +416,8 @@ def cli():
     parser.add_argument("--max_line_width", type=optional_int, default=None, help="(requires --word_timestamps True) the maximum number of characters in a line before breaking the line")
     parser.add_argument("--max_line_count", type=optional_int, default=None, help="(requires --word_timestamps True) the maximum number of lines in a segment")
     parser.add_argument("--threads", type=optional_int, default=0, help="number of threads used by torch for CPU inference; supercedes MKL_NUM_THREADS/OMP_NUM_THREADS")
+    parser.add_argument("--use_coreml", type=str2bool, default=False, help="use coreml backend")
     # fmt: on
-
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
     model_dir: str = args.pop("model_dir")
@@ -439,9 +442,11 @@ def cli():
     if (threads := args.pop("threads")) > 0:
         torch.set_num_threads(threads)
 
+    use_coreml = args.pop("use_coreml")
+
     from . import load_model
 
-    model = load_model(model_name, device=device, download_root=model_dir)
+    model = load_model(model_name, device=device, download_root=model_dir, use_coreml=use_coreml)
 
     writer = get_writer(output_format, output_dir)
     word_options = ["highlight_words", "max_line_count", "max_line_width"]
@@ -452,10 +457,16 @@ def cli():
     if args["max_line_count"] and not args["max_line_width"]:
         warnings.warn("--max_line_count has no effect without --max_line_width")
     writer_args = {arg: args.pop(arg) for arg in word_options}
-    for audio_path in args.pop("audio"):
-        result = transcribe(model, audio_path, temperature=temperature, **args)
-        writer(result, audio_path, writer_args)
 
+    for audio_path in args.pop("audio"):
+        startT = timer()
+        frameinfo = getframeinfo(currentframe())
+        result = transcribe(model, audio_path, temperature=temperature, **args)
+        print(f"---------------------------")
+        print(f"transcribe() took   {timer() - startT: .3f}s ({frameinfo.filename}:{frameinfo.lineno+1})\n")
+        if use_coreml:
+            showCoremlPredictTime()
+        writer(result, audio_path, writer_args)
 
 if __name__ == "__main__":
     cli()

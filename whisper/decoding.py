@@ -14,6 +14,7 @@ from .utils import compression_ratio
 if TYPE_CHECKING:
     from .model import Whisper
 
+from timeit import default_timer as timer
 
 @torch.no_grad()
 def detect_language(
@@ -143,36 +144,62 @@ class PyTorchInference(Inference):
     def __init__(self, model: "Whisper", initial_token_length: int):
         self.model: "Whisper" = model
         self.initial_token_length = initial_token_length
-        self.kv_cache = {}
-        self.hooks = []
-
-        key_modules = [block.attn.key for block in self.model.decoder.blocks]
-        value_modules = [block.attn.value for block in self.model.decoder.blocks]
-        self.kv_modules = key_modules + value_modules
+        self.n_text_layer = model.dims.n_text_layer
 
     def logits(self, tokens: Tensor, audio_features: Tensor) -> Tensor:
-        if not self.kv_cache:
-            self.kv_cache, self.hooks = self.model.install_kv_cache_hooks()
-
         if tokens.shape[-1] > self.initial_token_length:
             # only need to use the last token except in the first forward pass
             tokens = tokens[:, -1:]
 
-        return self.model.decoder(tokens, audio_features, kv_cache=self.kv_cache)
+        if self.model.text_offset == 0:
+            self.model.masked_kv_caches = None
+
+        output, cross_head_weights, new_mkv = self.model.decoder(tokens,
+                                                                 audio_features,
+                                                                 self.model.text_offset,
+                                                                 self.model.masked_kv_caches)
+
+        n_ctx = tokens.shape[1]
+
+        if self.model.use_coreml:
+            self.model.masked_kv_caches = torch.ones((1))
+        else:
+            if self.model.text_offset == 0:
+                # append zeros to 448 len
+                zeros_shape = (new_mkv.shape[0],
+                               new_mkv.shape[1],
+                               448 - self.model.decoder.max_n_ctx_for_1st,
+                               new_mkv.shape[3])
+                self.model.masked_kv_caches = torch.cat([new_mkv,
+                                                         torch.zeros(zeros_shape)], dim=2)
+            else:
+                from_offset = self.model.text_offset
+                to_offset = self.model.text_offset + n_ctx
+                self.model.masked_kv_caches[:, :, from_offset:to_offset, :] = new_mkv
+
+        self.model.text_offset += n_ctx
+
+        return output, cross_head_weights
 
     def cleanup_caching(self):
-        for hook in self.hooks:
-            hook.remove()
-
-        self.kv_cache = {}
-        self.hooks = []
+        self.model.text_offset = 0
 
     def rearrange_kv_cache(self, source_indices):
-        if source_indices != list(range(len(source_indices))):
-            for module in self.kv_modules:
-                # update the key/value cache to contain the selected sequences
-                self.kv_cache[module] = self.kv_cache[module][source_indices].detach()
-
+        if not self.model.use_coreml: # only after decoder256
+            if source_indices != list(range(len(source_indices))):
+                # numpy is faster than torch 26ms -> 16ms
+                text_offset = self.model.text_offset
+                np_array = self.model.masked_kv_caches.numpy()
+                np_array_part = np_array[:,:,:text_offset]
+                for i in range(0, self.n_text_layer * 2):
+                    # update the key/value cache to contain the selected sequences
+                    np_array_part[i] = np_array_part[i][source_indices]
+                np_array[:, :, :text_offset] = np_array_part
+                self.model.masked_kv_caches = torch.from_numpy(np_array)
+        else:
+            source_indices = torch.from_numpy(np.array(source_indices))
+            self.model.decoder.coreml.rearrange_mkv(source_indices,
+                                                    self.model.text_offset)
 
 class SequenceRanker:
     def rank(
@@ -679,7 +706,7 @@ class DecodingTask:
 
         try:
             for i in range(self.sample_len):
-                logits = self.inference.logits(tokens, audio_features)
+                logits, cross_qks = self.inference.logits(tokens, audio_features)
 
                 if (
                     i == 0 and self.tokenizer.no_speech is not None

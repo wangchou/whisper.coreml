@@ -14,7 +14,7 @@ from .tokenizer import Tokenizer
 
 if TYPE_CHECKING:
     from .model import Whisper
-
+from timeit import default_timer as timer
 
 def median_filter(x: torch.Tensor, filter_width: int):
     """Apply a median filter of width `filter_width` along the last dimension of `x`"""
@@ -54,7 +54,7 @@ def median_filter(x: torch.Tensor, filter_width: int):
     return result
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, cache=True)
 def backtrace(trace: np.ndarray):
     i = trace.shape[0] - 1
     j = trace.shape[1] - 1
@@ -79,7 +79,7 @@ def backtrace(trace: np.ndarray):
     return result[::-1, :].T
 
 
-@numba.jit(nopython=True, parallel=True)
+@numba.jit(nopython=True, parallel=True, cache=True)
 def dtw_cpu(x: np.ndarray):
     N, M = x.shape
     cost = np.ones((N + 1, M + 1), dtype=np.float32) * np.inf
@@ -164,7 +164,6 @@ def find_alignment(
     model: "Whisper",
     tokenizer: Tokenizer,
     text_tokens: List[int],
-    mel: torch.Tensor,
     num_frames: int,
     *,
     medfilt_width: int = 7,
@@ -182,27 +181,19 @@ def find_alignment(
         ]
     ).to(model.device)
 
-    # install hooks on the cross attention layers to retrieve the attention weights
-    QKs = [None] * model.dims.n_text_layer
-    hooks = [
-        block.cross_attn.register_forward_hook(
-            lambda _, ins, outs, index=i: QKs.__setitem__(index, outs[-1][0])
-        )
-        for i, block in enumerate(model.decoder.blocks)
-    ]
-
     with torch.no_grad():
-        logits = model(mel.unsqueeze(0), tokens.unsqueeze(0))[0]
+        output, cross_head_weights = model(tokens.unsqueeze(0))
+        logits = output[0]
         sampled_logits = logits[len(tokenizer.sot_sequence) :, : tokenizer.eot]
         token_probs = sampled_logits.softmax(dim=-1)
         text_token_probs = token_probs[np.arange(len(text_tokens)), text_tokens]
         text_token_probs = text_token_probs.tolist()
 
-    for hook in hooks:
-        hook.remove()
+    #for hook in hooks:
+    #    hook.remove()
 
     # heads * tokens * frames
-    weights = torch.stack([QKs[l][h] for l, h in model.alignment_heads.indices().T])
+    weights = cross_head_weights
     weights = weights[:, :, : num_frames // 2]
     weights = (weights * qk_scale).softmax(dim=-1)
     std, mean = torch.std_mean(weights, dim=-2, keepdim=True, unbiased=False)
@@ -279,7 +270,6 @@ def add_word_timestamps(
     segments: List[dict],
     model: "Whisper",
     tokenizer: Tokenizer,
-    mel: torch.Tensor,
     num_frames: int,
     prepend_punctuations: str = "\"'“¿([{-",
     append_punctuations: str = "\"'.。,，!！?？:：”)]}、",
@@ -295,7 +285,7 @@ def add_word_timestamps(
     ]
 
     text_tokens = list(itertools.chain.from_iterable(text_tokens_per_segment))
-    alignment = find_alignment(model, tokenizer, text_tokens, mel, num_frames, **kwargs)
+    alignment = find_alignment(model, tokenizer, text_tokens, num_frames, **kwargs)
     word_durations = np.array([t.end - t.start for t in alignment])
     word_durations = word_durations[word_durations.nonzero()]
     median_duration = np.median(word_durations) if len(word_durations) > 0 else 0.0
