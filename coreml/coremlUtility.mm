@@ -61,15 +61,6 @@ void maToFloat32(MLMultiArray* ma, const float* fp32) {
     }
 }
 
-void unlock(MLMultiArray* ma) {
-    CVReturn cvRetval = 0;
-    cvRetval = CVPixelBufferUnlockBaseAddress(ma.pixelBuffer, 0);
-
-    if (cvRetval != kCVReturnSuccess) {
-        NSLog(@"something wrong on unlocking PixelBuffer %d", cvRetval);
-    }
-}
-
 void showStrides(MLMultiArray* ma) {
     NSLog(@" ");
     NSLog(@"count %ld %f", ma.count, ma.count / [ma.strides[0] floatValue]);
@@ -81,48 +72,37 @@ void showStrides(MLMultiArray* ma) {
     }
 }
 
-CVPixelBufferRef getPixelBuffer(int dim1, int dim2) {
-    CVPixelBufferRef pixelBuffer = NULL;
-    CVReturn cvRetval = 0;
-    NSDictionary* poptions = @{(id)kCVPixelBufferIOSurfacePropertiesKey : @{}};
-    cvRetval = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            dim1, dim2,
-            kCVPixelFormatType_OneComponent16Half,
-            (__bridge CFDictionaryRef)poptions,
-            &pixelBuffer);
-
-    if (cvRetval != kCVReturnSuccess) {
-        NSLog(@"something wrong on creating PixelBuffer %d, dim1=%d, dim2=%d", cvRetval, dim1, dim2);
+MLMultiArray* getArray2(int dim1, int dim2) {
+    NSError *error = nil;
+    MLMultiArray *array = [[MLMultiArray alloc] initWithShape:@[@(dim1), @(dim2)]
+                                         dataType:MLMultiArrayDataTypeFloat16
+                                            error:&error];
+    if (error) {
+        NSLog(@"Error initializing array: %@", error);
     }
-
-    return pixelBuffer;
+    return array;
 }
 
-MLMultiArray* getPixelBufferArray2(int dim1, int dim2) {
-    CVPixelBufferRef pixelBuffer = getPixelBuffer(dim2, dim1);
-    MLMultiArray* ma = [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2)]];
-
-    // unlock once to avoid it locked by dataPointer later
-    void * ptr = ma.dataPointer;
-    unlock(ma);
-    return ma;
+MLMultiArray* getArray3(int dim1, int dim2, int dim3) {
+    NSError *error = nil;
+    MLMultiArray *array = [[MLMultiArray alloc] initWithShape:@[@(dim1), @(dim2), @(dim3)]
+                                         dataType:MLMultiArrayDataTypeFloat16
+                                            error:&error];
+    if (error) {
+        NSLog(@"Error initializing array: %@", error);
+    }
+    return array;
 }
 
-MLMultiArray* getPixelBufferArray3(int dim1, int dim2, int dim3) {
-    CVPixelBufferRef pixelBuffer = getPixelBuffer(dim3, dim1 * dim2);
-    MLMultiArray* ma = [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3)]];
-    void * ptr = ma.dataPointer;
-    unlock(ma);
-    return ma;
-}
-
-MLMultiArray* getPixelBufferArray4(int dim1, int dim2, int dim3, int dim4) {
-    CVPixelBufferRef pixelBuffer = getPixelBuffer(dim4, dim1 * dim2 * dim3);
-    MLMultiArray* ma = [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3), @(dim4)]];
-    void * ptr = ma.dataPointer;
-    unlock(ma);
-    return ma;
+MLMultiArray* getArray4(int dim1, int dim2, int dim3, int dim4) {
+    NSError *error = nil;
+    MLMultiArray *array = [[MLMultiArray alloc] initWithShape:@[@(dim1), @(dim2), @(dim3), @(dim4)]
+                                         dataType:MLMultiArrayDataTypeFloat16
+                                            error:&error];
+    if (error) {
+        NSLog(@"Error initializing array: %@", error);
+    }
+    return array;
 }
 
 MLMultiArray* getArray1(void* dataPtr, int dim1, MLMultiArrayDataType dataType) {

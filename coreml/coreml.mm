@@ -54,9 +54,9 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state) {
         }
     }
 
-    inMelSegment = getPixelBufferArray3(1, 80, 3000);
+    inMelSegment = getArray3(1, 80, 3000);
     if (arrayXa == nil) {
-        arrayXa = getPixelBufferArray3(1, 1500, n_state);
+        arrayXa = getArray3(1, 1500, n_state);
     }
 
     isEncoderLoaded = true;
@@ -140,8 +140,8 @@ void loadCrossKV(const char* modelPath, int n_layer, int n_state) {
     int n_head = n_state / 64;
 
     if (arrayCK==nil) {
-        arrayCK = getPixelBufferArray4(n_layer, n_head, 64, 1500);
-        arrayCV = getPixelBufferArray4(n_layer, n_head, 1500, 64);
+        arrayCK = getArray4(n_layer, n_head, 64, 1500);
+        arrayCV = getArray4(n_layer, n_head, 1500, 64);
     }
     isCrossKVLoaded = true;
 }
@@ -223,19 +223,19 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
     int max_n_ctx = 256;
 
     // input arrays
-    inX256 = getPixelBufferArray3(1, max_n_ctx, n_state);
-    inQk_mask256 = getPixelBufferArray2(max_n_ctx, max_n_ctx);
+    inX256 = getArray3(1, max_n_ctx, n_state);
+    inQk_mask256 = getArray2(max_n_ctx, max_n_ctx);
 
-    outX256 = getPixelBufferArray3(1, max_n_ctx, n_state);
-    outCHW256 = getPixelBufferArray3(n_alignment_head, max_n_ctx, 1500);
-    outMKV256 = getPixelBufferArray4(n_layer*2, 1, max_n_ctx, n_state);
+    outX256 = getArray3(1, max_n_ctx, n_state);
+    outCHW256 = getArray3(n_alignment_head, max_n_ctx, 1500);
+    outMKV256 = getArray4(n_layer*2, 1, max_n_ctx, n_state);
 
     // prepare for decoder1 input
     _n_layer = n_layer;
     _n_state = n_state;
     bs = decoder1_bs;
     if (arrayMKV448 == nil) {
-        arrayMKV448 = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
+        arrayMKV448 = getArray4(n_layer*2, bs, 448, n_state);
     }
 
     // tmpMKV for rearrange_mkv
@@ -396,16 +396,16 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
 
     // input arrays
     n_head = n_state/64;
-    inX_1 = getPixelBufferArray3(bs, 1, n_state);
+    inX_1 = getArray3(bs, 1, n_state);
     if (bs == 1) {
-        inQk_mask_1 = getPixelBufferArray2(1, 450);
+        inQk_mask_1 = getArray2(1, 450);
     } else {
-        inQk_mask_1 = getPixelBufferArray2(1, 449);
+        inQk_mask_1 = getArray2(1, 449);
     }
 
     // output arrays
-    outX_1 = getPixelBufferArray3(bs, 1, n_vocab);
-    outMKV_1 = getPixelBufferArray4(n_layer*2, bs, 1, n_state);
+    outX_1 = getArray3(bs, 1, n_vocab);
+    outMKV_1 = getArray4(n_layer*2, bs, 1, n_state);
 
     isDecoder1Loaded = true;
 }
