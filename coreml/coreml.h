@@ -2,7 +2,7 @@
 extern "C" {
 #endif
 
-void loadEncoder(const char* modelFolderPath, int n_layer, int n_state);
+void loadEncoder(const char* modelFolderPath, int n_layer, int n_state, int n_mels);
 void closeEncoder();
 void encoderPredict(float* melSegment);
 

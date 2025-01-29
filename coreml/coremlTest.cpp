@@ -12,17 +12,21 @@ float* getOnes(int count) {
     return ptr;
 }
 
-enum ModelSize {Tiny, Base, Small, Medium, Large};
-int n_layers[] = {4, 6, 12, 24, 32};
-int n_states[] = {384, 512, 768, 1024, 1280};
-int n_heads[] = {6, 8, 12, 16, 20};
-int n_alignment_heads[] = {6, 8, 10, 6, 23};
+enum ModelSize {Tiny, Base, Small, Medium, Large, Turbo};
+int n_audio_layers[] = {4, 6, 12, 24, 32, 32};
+int n_text_layers[] = {4, 6, 12, 24, 32, 4};
+int n_states[] = {384, 512, 768, 1024, 1280, 1280};
+int n_heads[] = {6, 8, 12, 16, 20, 20};
+int n_alignment_heads[] = {6, 8, 10, 6, 23, 23};
+int n_melss[] = {80, 80, 80, 80, 80, 120};
+
 
 // This only test the prediction speed,
 // make sure all runs on ANE correctly
 int main() {
-    enum ModelSize modelSize = Large;
-    int n_layer = n_layers[modelSize];
+    enum ModelSize modelSize = Tiny;
+    int n_audio_layer = n_audio_layers[modelSize];
+    int n_text_layer = n_text_layers[modelSize];
     int n_state = n_states[modelSize];
     int n_head = n_heads[modelSize];
     int n_alignment_head = n_alignment_heads[modelSize];
@@ -31,15 +35,16 @@ int main() {
     int text_offset = 10;
     int n_vocab = 51865; //multi-lang: 51865, en only: 51864
     int max_n_ctx = 256;
+    int n_mels = n_melss[modelSize]; // turbo: 128, others: 80
 
     for(int run=0; run<2; run++) {
         cout << "/////////" << endl;
         cout << "/// Run " << run << endl;
         cout << "/////////" << endl;
         // Encoder
-        loadEncoder("./large", n_layer, n_state);
+        loadEncoder("./tiny", n_audio_layer, n_state, n_mels);
 
-        float* melSegment = getOnes(1*80*3000);
+        float* melSegment = getOnes(1*n_mels*3000);
         for(int i=0; i<3; i++) {
             chrono::steady_clock::time_point begin = chrono::steady_clock::now();
             encoderPredict(melSegment);
@@ -49,9 +54,9 @@ int main() {
 
         // crossKV
         cout << "---" << endl;
-        loadCrossKV("./large/CoremlCrossKV.mlmodelc", n_layer, n_state);
-        float* out_cross_k_caches = getOnes( n_layer * 1500 * n_state);
-        float* out_cross_v_caches = getOnes( n_layer * 1500 * n_state);
+        loadCrossKV("./tiny/CrossKV.mlmodelc", n_text_layer, n_state);
+        float* out_cross_k_caches = getOnes( n_text_layer * 1500 * n_state);
+        float* out_cross_v_caches = getOnes( n_text_layer * 1500 * n_state);
         for(int i=0; i<3; i++) {
             chrono::steady_clock::time_point begin = chrono::steady_clock::now();
             crossKVPredict();
@@ -61,7 +66,7 @@ int main() {
 
         //decoder256
         cout << "---" << endl;
-        loadDecoder256("./large/CoremlDecoder256.mlmodelc", n_layer, n_state, n_head, n_alignment_head, bs);
+        loadDecoder256("./tiny/Decoder256.mlmodelc", n_text_layer, n_state, n_head, n_alignment_head, bs);
 
         float* x = getOnes(bs * max_n_ctx * n_state); // (bs, 1, n_state)
         float* qk_mask = getOnes(max_n_ctx * max_n_ctx); // (256, 256)
@@ -77,7 +82,7 @@ int main() {
 
         //decoder1
         cout << "---" << endl;
-        loadDecoder1("./large/CoremlDecoder.mlmodelc", n_layer, n_state, n_head, n_vocab);
+        loadDecoder1("./tiny/Decoder.mlmodelc", n_text_layer, n_state, n_head, n_vocab);
 
         float* qk_mask1 = getOnes(450); // (1, 449)
         float* out_x1 = getOnes(bs * n_vocab); // (bs, 1, n_state)

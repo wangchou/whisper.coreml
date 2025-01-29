@@ -12,9 +12,9 @@ void maToFloat32(MLMultiArray* ma, const float* fp32);
 void unlock(MLMultiArray* ma);
 void showStrides(MLMultiArray* ma);
 CVPixelBufferRef getPixelBuffer(int dim1, int dim2);
-MLMultiArray* getPixelBufferArray2(int dim1, int dim2);
-MLMultiArray* getPixelBufferArray3(int dim1, int dim2, int dim3);
-MLMultiArray* getPixelBufferArray4(int dim1, int dim2, int dim3, int dim4);
+MLMultiArray* getArray2(int dim1, int dim2);
+MLMultiArray* getArray3(int dim1, int dim2, int dim3);
+MLMultiArray* getArray4(int dim1, int dim2, int dim3, int dim4);
 MLMultiArray* getArray1(void* dataPtr, int dim1, MLMultiArrayDataType dataType);
 
 #if __cplusplus

@@ -14,8 +14,8 @@ print("----------------")
 modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
 model = whisper.load_model(modelName).cpu()
 modelSize = modelName.split(".")[0]
-n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
-n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
+n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280, 'turbo': 1280}[modelSize]
+n_text_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32, 'turbo': 4}[modelSize]
 n_head = n_state//64
 
 decoder = model.decoder
@@ -30,8 +30,8 @@ bs = 1 # beam_size
 max_n_ctx = decoder.max_n_ctx_for_1st
 x = torch.ones((bs, max_n_ctx, n_state))
 qk_mask = torch.zeros((max_n_ctx, max_n_ctx))
-cross_k_caches = torch.ones((n_layer, n_head, 64, 1500))
-cross_v_caches = torch.ones((n_layer, n_head, 1500, 64))
+cross_k_caches = torch.ones((n_text_layer, n_head, 64, 1500))
+cross_v_caches = torch.ones((n_text_layer, n_head, 1500, 64))
 
 import warnings
 with warnings.catch_warnings():

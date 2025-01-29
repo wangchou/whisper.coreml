@@ -16,8 +16,8 @@ bs = int(sys.argv[2]) if len(sys.argv) > 2 else 1 # beam search size
 
 model = whisper.load_model(modelName).cpu()
 modelSize = modelName.split(".")[0]
-n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
-n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
+n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280, 'turbo': 1280}[modelSize]
+n_text_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32, 'turbo': 4}[modelSize]
 n_head = n_state//64
 
 decoder = model.decoder
@@ -33,9 +33,9 @@ if bs == 1:
 else:
     qk_mask = torch.zeros((1,449))
 
-masked_kv_caches = torch.ones((n_layer * 2, bs, 448, n_state))
-cross_k_caches = torch.ones((n_layer, n_head, 64, 1500))
-cross_v_caches = torch.ones((n_layer, n_head, 1500, 64))
+masked_kv_caches = torch.ones((n_text_layer * 2, bs, 448, n_state))
+cross_k_caches = torch.ones((n_text_layer, n_head, 64, 1500))
+cross_v_caches = torch.ones((n_text_layer, n_head, 1500, 64))
 
 import warnings
 with warnings.catch_warnings():

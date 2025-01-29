@@ -14,8 +14,7 @@ print("--------------------------")
 modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
 model = whisper.load_model(modelName).cpu()
 modelSize = modelName.split(".")[0]
-n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
-n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
+n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280, 'turbo': 1280}[modelSize]
 
 decoder = model.decoder
 decoder.eval()

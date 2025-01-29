@@ -17,9 +17,11 @@ totalCrossKVTime = 0
 dummy = torch.ones((1))
 
 class Coreml():
-    def __init__(self, n_layer: int, n_state: int, n_head: int, n_vocab: int, modelName):
+    def __init__(self, n_audio_layer: int, n_text_layer: int, n_mels: int, n_state: int, n_head: int, n_vocab: int, modelName):
         self.obj = cdll.LoadLibrary(f'./coreml/{modelName}/coreml.so')
-        self.n_layer = n_layer
+        self.n_audio_layer = n_audio_layer
+        self.n_text_layer = n_text_layer
+        self.n_mels = n_mels
         self.n_state = n_state
         self.n_head = n_head
         self.n_alignment_head = -1 # for decoder256
@@ -37,10 +39,10 @@ class Coreml():
         if self.isEncoderLoaded:
             return
         startT = timer()
-        self.obj.loadEncoder.argtypes = [c_char_p, c_int, c_int]
+        self.obj.loadEncoder.argtypes = [c_char_p, c_int, c_int, c_int]
         self.obj.loadEncoder.restype = None
         c_string = bytes(f'./coreml/{self.modelName}', 'ascii')
-        self.obj.loadEncoder(c_string, self.n_layer, self.n_state)
+        self.obj.loadEncoder(c_string, self.n_audio_layer, self.n_state, self.n_mels)
         self.isEncoderLoaded = True
         totalLoadTime += timer()-startT
 
@@ -79,10 +81,10 @@ class Coreml():
         self.obj.loadCrossKV.argtypes = [c_char_p, c_int, c_int]
         self.obj.loadCrossKV.restype = None
         c_string = bytes(f'./coreml/{self.modelName}/CrossKV.mlmodelc', 'ascii')
-        self.obj.loadCrossKV(c_string, self.n_layer, self.n_state)
+        self.obj.loadCrossKV(c_string, self.n_text_layer, self.n_state)
 
         n_state = self.n_state
-        n_layer = self.n_layer
+        n_text_layer = self.n_text_layer
         n_head = n_state//64
 
         self.isCrossKVLoaded = True
@@ -122,11 +124,11 @@ class Coreml():
         self.obj.loadDecoder256.argtypes = [c_char_p, c_int, c_int, c_int, c_int, c_int]
         self.obj.loadDecoder256.restype = None
         c_string = bytes(f'./coreml/{self.modelName}/Decoder256.mlmodelc', 'ascii')
-        self.obj.loadDecoder256(c_string, self.n_layer, self.n_state, self.n_head, self.n_alignment_head, self.bs)
+        self.obj.loadDecoder256(c_string, self.n_text_layer, self.n_state, self.n_head, self.n_alignment_head, self.bs)
 
         n_head = self.n_head
         n_state = self.n_state
-        n_layer = self.n_layer
+        n_text_layer = self.n_text_layer
         n_alignment_head = self.n_alignment_head
         max_n_ctx = 256
 
@@ -185,14 +187,14 @@ class Coreml():
         bs = self.bs
         n_head = self.n_head
         n_state = self.n_state
-        n_layer = self.n_layer
+        n_text_layer = self.n_text_layer
         n_vocab = self.n_vocab
-        self.obj.loadDecoder1(c_string, n_layer, n_state, n_head, n_vocab)
+        self.obj.loadDecoder1(c_string, n_text_layer, n_state, n_head, n_vocab)
 
         dtype1=torch.float32
         # prepare output buffers
         self.out_x1 = torch.ones((bs, 1, self.n_vocab), dtype=dtype1).contiguous()
-        self.new_masked_kv_caches1 = torch.ones((n_layer * 2, bs, 1, n_state), dtype=dtype1).contiguous()
+        self.new_masked_kv_caches1 = torch.ones((n_text_layer * 2, bs, 1, n_state), dtype=dtype1).contiguous()
         self.outXPtr1 = ctypes.cast(self.out_x1.data_ptr(), f32Ptr)
         self.isDecoder1Loaded = True
         totalLoadTime += timer()-startT

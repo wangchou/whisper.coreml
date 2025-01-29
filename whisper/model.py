@@ -50,7 +50,8 @@ class Whisper(nn.Module):
             use_coreml,
             modelName,
         )
-        # use the last half layers for alignment by default; see `set_alignment_heads()` below
+        # use the last half among the decoder layers for time alignment by default;
+        # to use a specific set of heads, see `set_alignment_heads()` below.
         all_heads = torch.zeros(
             self.dims.n_text_layer, self.dims.n_text_head, dtype=torch.bool
         )
@@ -123,7 +124,11 @@ class Whisper(nn.Module):
 
     @property
     def is_multilingual(self):
-        return self.dims.n_vocab == 51865
+        return self.dims.n_vocab >= 51865
+
+    @property
+    def num_languages(self):
+        return self.dims.n_vocab - 51765 - int(self.is_multilingual)
 
     detect_language = detect_language_function
     transcribe = transcribe_function

@@ -14,8 +14,9 @@ print("-------------")
 modelName = sys.argv[1] if len(sys.argv) > 1 else "small"
 model = whisper.load_model(modelName).cpu()
 modelSize = modelName.split(".")[0]
-n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280}[modelSize]
-n_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32}[modelSize]
+n_state = { 'tiny': 384, 'base': 512, 'small': 768, 'medium': 1024, 'large': 1280, 'turbo': 1280}[modelSize]
+n_audio_layer = { 'tiny': 4, 'base': 6, 'small': 12, 'medium': 24, 'large': 32, 'turbo': 32}[modelSize]
+n_mels = { 'tiny': 80, 'base': 80, 'small': 80, 'medium': 80, 'large': 80, 'turbo': 128}[modelSize]
 
 encoder = model.encoder
 encoder.eval()
@@ -26,13 +27,13 @@ skip_model_load = True
 def convertBlock12(encoder, from_block_idx, skip_model_load: bool):
     global total_conversion_time
     global total_prediction_time
-    print(f"- {modelName} encoder Block {from_block_idx}..<{min(from_block_idx+12, n_layer)} -")
+    print(f"- {modelName} encoder Block {from_block_idx}..<{min(from_block_idx+12, n_audio_layer)} -")
 
     #
     # Torch Trace
     #
     if from_block_idx == 0:
-        x = torch.ones((1, 80, 3000))
+        x = torch.ones((1, n_mels, 3000))
     else:
         x = torch.ones((1, 1500, n_state))
 
@@ -100,7 +101,7 @@ def convertBlock12(encoder, from_block_idx, skip_model_load: bool):
         print("diff avg,max:", torch.mean(diff), torch.max(diff))
 
 skip_model_load = True
-for block_idx in range(0, n_layer, 12):
+for block_idx in range(0, n_audio_layer, 12):
     convertBlock12(encoder, block_idx, skip_model_load)
 
 print("---------------------")
