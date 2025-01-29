@@ -39,4 +39,3 @@ python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=be
 ### Known issues:
 * Loading coreml model for first time takes a long time on ANECompilerService (small model:50s, large model: 3m20s)
 * Decoder256 of large model runs on GPU (memory issue? on M1 Air 16GB)
-
