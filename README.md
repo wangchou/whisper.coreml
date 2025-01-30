@@ -16,31 +16,29 @@ python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=be
 ```
 
 ### Performance
-* transcribe() 1 mins song on Macbook M1 Air 16GB when **beam_size=1**
+* transcribe() 1 mins song on Macbook M1 Air 16GB with **beam_size=1**
 
 |  Model Size  | 1st load time | cached load time | transcribe time (bs=1)|
 |:------:|----------:|------------------:|------------------:|
-| small (whisper+coreml ane)  |   47s    |     1s     |      load time + 2s |
-| small (openai/whisper cpu)  |       |         |   9s   |
-| large (whisper+coreml ane)  |   3m20s   |    9s        |      load time + 10s       |
-| large (openai/whisper cpu)  |     |           |     42s  |
-| turbo (whisper+coreml **ane+gpu**)  |  4m9s   |    0.8s        |      load time + 3s       |
 | turbo (openai/whisper cpu)  |     |            |      21s       |
 
-* transcribe() 1 mins song on Macbook M1 Air 16GB when **beam_size=5** (default option of openai/whisper)
+* transcribe() 1 mins song on Macbook M1 Air 16GB with **beam_size=5** (default option of openai/whisper)
 
 |  Model Size  | 1st load time | cached load time | transcribe time (bs=5)|
 |:------:|----------:|------------------:|------------------:|
-| small (whisper+coreml ane)  |   55s    |     1s     |      load time + 4s |
-| small (openai/whisper cpu)  |       |         |   27s   |
-| large (whisper+coreml ane)  |   3m57s   |    10s        |      load time + 23s       |
-| large (openai/whisper cpu)  |     |           |     122s  |
-| turbo (whisper+coreml **ane+gpu**)  |  4m20s   |    1.2s        |      load time + 7s       |
 | turbo (openai/whisper cpu)  |     |            |      32s       |
+| turbo (whisper+coreml **default**) |  4s   |    1.5s        |      load time + 9.4s       |
+| turbo (whisper+coreml **encoder on ane**)  |  4m14s   |    1.5s        |      load time + 7.0s       |
 
-**Note**: Transcribe time only measure the time of transcribe() in transcribe.py. Python model load time is not included in transcribe time. **turbo model runs encoder on ANE, decoder on GPU** (decoder on GPU is faster and save ANECompilerService time, too)
 
+**Note**:
 
-### Known issues:
-* Loading coreml model for first time takes a long time on ANECompilerService (small model:50s, large model: 3m20s)
-* Decoder256 of large model runs on GPU (memory issue? on M1 Air 16GB)
+* Transcribe time means the time of transcribe() in transcribe.py. Python model load time is not included.
+* turbo model default: 
+  * encoder on GPU
+  * crossKVCaches on ANE
+  * decoder 256 on ANE
+  * decoder1 on GPU
+* turbo model with **encoder on ANE**: encoder speed 3x faster but with 4min initial load time penality. (edit coreml/coreml.mm to switch GPU/ANE mode)
+
+<img src="./img/first_load_time.jpg" alt="isolated" width="400"/>
