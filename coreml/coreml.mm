@@ -47,6 +47,7 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state, int n_me
         NSError *error = nil;
         MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
         config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
+        //config.computeUnits = MLComputeUnitsCPUAndGPU;
         encoders[i] = CFBridgingRetain([MLModel modelWithContentsOfURL:modelURL configuration:config error:&error]);
 
         if(error) {
@@ -387,7 +388,11 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
 
     NSError *error = nil;
     MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
-    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
+
+    // memory issue on 16GB Device, cannot run both decoder1 and decoder256 on ANE
+    bool isLargeModel = n_state == 1280;
+    config.computeUnits = isLargeModel ? MLComputeUnitsCPUAndGPU : MLComputeUnitsCPUAndNeuralEngine;
+
     decoder1 = CFBridgingRetain([[Decoder alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
 
     if(error) {

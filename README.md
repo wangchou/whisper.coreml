@@ -5,7 +5,7 @@ Whisper+Coreml speeds up decoder and encoder by using Apple Neural Engine (ANE).
 ```sh
 # 1. convert encoder, decoder to coreml model and build shared library
 #    (small model: 70s, large model: 5mins)
-./convert_coreml.sh [tiny|small|medium|...] [beam_size]
+./convert_coreml.sh [tiny|small|...|turbo] [beam_size]
 
 # 2. transcribe
 python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=beam_size --best_of=beam_size --word_timestamps=True --use_coreml=True
@@ -24,6 +24,8 @@ python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=be
 | small (openai/whisper cpu)  |       |         |   9s   |
 | large (whisper+coreml ane)  |   3m20s   |    9s        |      load time + 10s       |
 | large (openai/whisper cpu)  |     |           |     42s  |
+| turbo (whisper+coreml **ane+gpu**)  |  4m9s   |    0.8s        |      load time + 3s       |
+| turbo (openai/whisper cpu)  |     |            |      21s       |
 
 * transcribe() 1 mins song on Macbook M1 Air 16GB when **beam_size=5** (default option of openai/whisper)
 
@@ -33,8 +35,11 @@ python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=$1 --beam_size=be
 | small (openai/whisper cpu)  |       |         |   27s   |
 | large (whisper+coreml ane)  |   3m57s   |    10s        |      load time + 23s       |
 | large (openai/whisper cpu)  |     |           |     122s  |
+| turbo (whisper+coreml **ane+gpu**)  |  4m20s   |    1.2s        |      load time + 7s       |
+| turbo (openai/whisper cpu)  |     |            |      32s       |
 
-**Note**: Transcribe time only measure the time of transcribe() in transcribe.py. Python model load time is not included in transcribe time.
+**Note**: Transcribe time only measure the time of transcribe() in transcribe.py. Python model load time is not included in transcribe time. **turbo model runs encoder on ANE, decoder on GPU** (decoder on GPU is faster and save ANECompilerService time, too)
+
 
 ### Known issues:
 * Loading coreml model for first time takes a long time on ANECompilerService (small model:50s, large model: 3m20s)
