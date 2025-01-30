@@ -289,6 +289,13 @@ def transcribe(
             segment_duration = segment_size * HOP_LENGTH / SAMPLE_RATE
             mel_segment = pad_or_trim(mel_segment, N_FRAMES).to(model.device).to(dtype)
 
+            # avoid padding last 0.5 secs of clip to 30s
+            # which cause hallucinations
+            # simply discard it
+            if segment_duration < 1.0:
+                clip_idx += 1
+                continue
+
             if carry_initial_prompt:
                 nignored = max(len(initial_prompt_tokens), prompt_reset_since)
                 remaining_prompt = all_tokens[nignored:][-remaining_prompt_length:]
