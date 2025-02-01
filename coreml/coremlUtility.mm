@@ -115,3 +115,46 @@ MLMultiArray* getArray1(void* dataPtr, int dim1, MLMultiArrayDataType dataType) 
         error: nil
     ];
 }
+
+CVPixelBufferRef getPixelBuffer(int dim1, int dim2) {
+    CVPixelBufferRef pixelBuffer = NULL;
+    CVReturn cvRetval = 0;
+    NSDictionary* poptions = @{(id)kCVPixelBufferIOSurfacePropertiesKey : @{}};
+    cvRetval = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            dim1, dim2,
+            kCVPixelFormatType_OneComponent16Half,
+            (__bridge CFDictionaryRef)poptions,
+            &pixelBuffer);
+
+    if (cvRetval != kCVReturnSuccess) {
+        NSLog(@"something wrong on creating PixelBuffer %d, dim1=%d, dim2=%d", cvRetval, dim1, dim2);
+    }
+
+    return pixelBuffer;
+}
+
+MLMultiArray* getPixelBufferArray4(int dim1, int dim2, int dim3, int dim4) {
+    CVPixelBufferRef pixelBuffer = getPixelBuffer(dim4, dim1 * dim2 * dim3);
+    MLMultiArray* ma = [[MLMultiArray alloc] initWithPixelBuffer:pixelBuffer shape:@[@(dim1), @(dim2), @(dim3), @(dim4)]];
+    return ma;
+}
+
+//void lock(MLMultiArray* ma) {
+//    CVReturn cvRetval = 0;
+//    cvRetval = CVPixelBufferLockBaseAddress(ma.pixelBuffer, 0);
+//
+//    if (cvRetval != kCVReturnSuccess) {
+//        NSLog(@"Error on locking PixelBuffer %d", cvRetval);
+//    }
+//}
+//
+//void unlock(MLMultiArray* ma) {
+//    CVReturn cvRetval = 0;
+//    cvRetval = CVPixelBufferUnlockBaseAddress(ma.pixelBuffer, 0);
+//
+//    if (cvRetval != kCVReturnSuccess) {
+//        NSLog(@"Error on unlocking PixelBuffer %d", cvRetval);
+//    }
+//}
+//

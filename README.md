@@ -21,9 +21,9 @@ python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=turbo --beam_size
 
 |  Model Size  | 1st load time | cached load time | transcribe time (bs=5)|
 |:------:|----------:|------------------:|------------------:|
-| turbo (openai/whisper cpu)  |     |            |      32s       |
-| turbo (whisper+coreml **default**) |  4s   |    1.5s        |      load time + 9.4s       |
-| turbo (whisper+coreml **encoder on ane**)  |  4m14s   |    1.5s        |      load time + 7.0s       |
+| turbo (openai/whisper cpu)  |     |            |      31s       |
+| turbo (whisper+coreml **default**) |  4s   |    1.5s        |      load time + 9.1s       |
+| turbo (whisper+coreml **encoder on ane**)  |  4m14s   |    1.5s        |      load time + 6.7s       |
 
 
 ### Notes
@@ -34,6 +34,15 @@ python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=turbo --beam_size
   * crossKVCaches on ANE
   * decoder 256 on ANE
   * decoder1 on GPU
-* turbo model with encoder on ANE: The encoder runs 3× faster, but there is a 4-minute initial load time penalty. (Modify coreml/coreml.mm to switch between GPU and ANE mode.)
+* turbo model with encoder on ANE: The encoder runs 3× faster, but there is a 4-minute uncached load time penalty. (Modify coreml/coreml.mm to switch between GPU and ANE mode.)
 
 <img src="./img/first_load_time.jpg" alt="isolated" width="400"/>
+
+### About ANE slow uncached load issue
+Apple's ANECompilerService is slow for large models. It compiles the model on each user’s device. This cannot be avoided when choosing the Neural Engine as the compute unit. It cannot compile small models in parallel. The only workaround is to divide the encoder into smaller encoders to speed it up a little. That's why I choose the GPU as the encoder's compute unit by default.
+
+* Experiments on ANECompilerService uncached load time:
+  * one big turbo encoder: 610 secs
+  * 3 small encoders: 250s (default)
+  * 8 small encoders: 170s
+  * 16 smaller encoders: 154s

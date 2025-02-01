@@ -1,3 +1,4 @@
+#include <CoreFoundation/CoreFoundation.h>
 #import <CoreML/CoreML.h>
 #import <Accelerate/Accelerate.h>
 #import <QuartzCore/QuartzCore.h>
@@ -38,7 +39,6 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state, int n_me
     } // base model with layer 6
 
     for(int i=0; i<encoder_count; i++) {
-        CFTimeInterval startT = CACurrentMediaTime();
         NSString *modelPathStr = [NSString stringWithFormat:@"%s/Encoder%d.mlmodelc", modelFolderPath, i*blockUnit]; // n blocks as sub model unit
         if (isEncoderLoaded) {
             return;
@@ -48,10 +48,11 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state, int n_me
         MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
         //config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
         config.computeUnits = MLComputeUnitsCPUAndGPU;
+
         encoders[i] = CFBridgingRetain([MLModel modelWithContentsOfURL:modelURL configuration:config error:&error]);
 
         if(error) {
-            NSLog(@"Error load model from %@, %@", modelPathStr, error);
+            NSLog(@"loadEncoder load model from %@, %@", modelPathStr, error);
         }
     }
 
@@ -64,15 +65,13 @@ void loadEncoder(const char* modelFolderPath, int n_layer, int n_state, int n_me
 }
 
 void encoderPredict(float* melSegment) {
-    MLPredictionOptions* options;
-    options = [MLPredictionOptions alloc];
+    MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
     NSDictionary *outputBackings = @{
         @"out_x":arrayXa,
     };
 
     [options setOutputBackings:outputBackings];
 
-    int model_idx = 0;
     for(int model_idx=0; model_idx < encoder_count; model_idx++) {
         MLMultiArray* inputArray;
 
@@ -88,9 +87,10 @@ void encoderPredict(float* melSegment) {
         // Encoder0Input is just a wrapper for providing interface of access
         // data by name, so it is the same for all sub encoders
         Encoder0Input* input = [[Encoder0Input alloc] initWithX:inputArray];
+
         [(__bridge id)encoders[model_idx] predictionFromFeatures:input options:options error:&error];
         if(error) {
-            NSLog(@"Error on prediction %@", error);
+            NSLog(@"encoderPredict model=%d on prediction %@", model_idx, error);
         }
     }
 
@@ -108,7 +108,6 @@ void closeEncoder() {
         CFRelease(encoders[model_idx]);
         encoders[model_idx] = nil;
     }
-    CFRelease(inMelSegment.pixelBuffer);
     inMelSegment = nil;
     isEncoderLoaded = false;
     isEncoderPredicted = false;
@@ -121,7 +120,6 @@ bool isCrossKVLoaded = false;
 const void* crossKV;
 
 void loadCrossKV(const char* modelPath, int n_layer, int n_state) {
-    CFTimeInterval startT = CACurrentMediaTime();
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (isCrossKVLoaded) {
         return;
@@ -135,7 +133,7 @@ void loadCrossKV(const char* modelPath, int n_layer, int n_state) {
     crossKV = CFBridgingRetain([[CrossKV alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
 
     if(error) {
-      NSLog(@"Error load model from %s, %@", modelPath, error);
+      NSLog(@"loadCrossKV load model from %s, %@", modelPath, error);
     }
 
     int n_head = n_state / 64;
@@ -150,7 +148,7 @@ void loadCrossKV(const char* modelPath, int n_layer, int n_state) {
 void crossKVPredict() {
     CrossKVInput* input = [[CrossKVInput alloc] initWithXa:arrayXa];
 
-    MLPredictionOptions* options = [MLPredictionOptions alloc];
+    MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
 
     NSDictionary *outputBackings = @{
         @"out_cross_k_caches":arrayCK,
@@ -162,7 +160,7 @@ void crossKVPredict() {
     [(__bridge id)crossKV predictionFromFeatures:input options:options error:&error];
 
     if(error) {
-        NSLog(@"%@", error);
+        NSLog(@"crossKVPredict %@", error);
     }
 
     if (!isCrossKVPredicted) {
@@ -194,7 +192,6 @@ MLMultiArray *outX256;
 MLMultiArray *outCHW256; // cross_head_weights
 MLMultiArray *outMKV256;
 
-bool isDecoder256Predicted = false;
 bool isDecoder256Loaded = false;
 
 int _n_layer;
@@ -202,7 +199,6 @@ int _n_state;
 int bs = 1;
 
 void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head, int n_alignment_head, int decoder1_bs) {
-    CFTimeInterval startT = CACurrentMediaTime();
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
     if (isDecoder256Loaded) {
         return;
@@ -211,12 +207,11 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
 
     NSError *error = nil;
     MLModelConfiguration* config = [[MLModelConfiguration alloc] init];
-
     config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
 
     decoder256 = CFBridgingRetain([[Decoder256 alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
     if(error) {
-      NSLog(@"Error load model from %s, %@", modelPath, error);
+      NSLog(@"loadDecoder256 load model from %s, %@", modelPath, error);
     }
 
     int max_n_ctx = 256;
@@ -234,7 +229,7 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
     _n_state = n_state;
     bs = decoder1_bs;
     if (arrayMKV448 == nil) {
-        arrayMKV448 = getArray4(n_layer*2, bs, 448, n_state);
+        arrayMKV448 = getPixelBufferArray4(n_layer*2, bs, 448, n_state);
     }
 
     // tmpMKV for rearrange_mkv
@@ -253,12 +248,12 @@ void loadDecoder256(const char* modelPath, int n_layer, int n_state, int n_head,
 // np_array[:, :, :text_offset] = np_array_part
 //
 // arrayMKV448:  (n_layer * 2) * bs * 448 * n_state
-uint16* copyed_ptr[5];
 void rearrange_mkv(int* indices, int text_offset) {
     int copyCount = text_offset * _n_state;
     uint16* layerPtr = (uint16*)arrayMKV448.dataPointer;
 
     int bsStride = 448 * _n_state;
+    uint16* copyed_ptr[5];
     for(int layer_i=0; layer_i < _n_layer * 2; layer_i++) {
         // copy to tmp buffer
         for(int bi=0; bi<bs; bi++) {
@@ -288,14 +283,13 @@ void decoder256Predict(
     float* out_cross_head_weights,
     int beam_idx // for copy to arrayMKV448 as decoder1 input
     ) {
-    CFTimeInterval startT = CACurrentMediaTime();
 
     // input arrays
     float32ToMa(x, inX256);
     float32ToMa(qk_mask, inQk_mask256);
 
     Decoder256Input* input = [[Decoder256Input alloc] initWithX:inX256 qk_mask:inQk_mask256 cross_k_caches:arrayCK cross_v_caches:arrayCV];
-    MLPredictionOptions* options = [MLPredictionOptions alloc];
+    MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
 
     NSDictionary *outputBackings = @{
         @"out_x":outX256,
@@ -309,7 +303,7 @@ void decoder256Predict(
     [(__bridge id)decoder256 predictionFromFeatures:input options:options error:&error];
 
     if(error) {
-        NSLog(@"Decoder256 Error %@", error);
+        NSLog(@"decoder256Predict Error %@", error);
     }
 
     maToFloat32(outX256, out_x);
@@ -330,10 +324,6 @@ void decoder256Predict(
         layer256Ptr += bsStride256;
         layer448Ptr += bs * bsStride448;
     }
-
-    if (!isDecoder256Predicted) {
-        isDecoder256Predicted = true;
-    }
 }
 
 void closeDecoder256() {
@@ -343,19 +333,22 @@ void closeDecoder256() {
     NSLog(@"closeDecoder256");
     CFRelease(decoder256);
     decoder256 = nil;
-    CFRelease(inX256.pixelBuffer);
     inX256 = nil;
-
-    CFRelease(outX256.pixelBuffer);
     outX256 = nil;
-
-    CFRelease(outCHW256.pixelBuffer);
     outCHW256 = nil;
-    CFRelease(outMKV256.pixelBuffer);
     outMKV256 = nil;
 
+    CFRelease(arrayMKV448.pixelBuffer);
+    arrayMKV448 = nil;
+
+    if (tmpMKV[0] != nil) {
+        for(int bi=0; bi<bs; bi++) {
+            CFRelease(tmpMKV[bi]);
+            tmpMKV[bi] = nil;
+        }
+    }
+
     isDecoder256Loaded = false;
-    isDecoder256Predicted = false;
 }
 
 /* Decoder1 ------------------------------------------ */
@@ -369,13 +362,11 @@ MLMultiArray *inQk_mask_1;
 MLMultiArray *outX_1;
 MLMultiArray *outMKV_1;
 
-bool isDecoder1Predicted = false;
 bool isDecoder1Loaded = false;
 int _n_head;
 int _n_vocab;
 
 void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, int n_vocab) {
-    CFTimeInterval startT = CACurrentMediaTime();
     _n_head = n_head;
     _n_vocab = n_vocab;
     NSString* modelPathStr = [[NSString alloc] initWithUTF8String:modelPath];
@@ -391,7 +382,7 @@ void loadDecoder1(const char* modelPath, int n_layer, int n_state, int n_head, i
     decoder1 = CFBridgingRetain([[Decoder alloc] initWithContentsOfURL:modelURL configuration:config error:&error]);
 
     if(error) {
-      NSLog(@"Error load model from %s, %@", modelPath, error);
+      NSLog(@"loadDecoder1 load model from %s, %@", modelPath, error);
     }
 
     // input arrays
@@ -416,13 +407,12 @@ void decoder1Predict(
     int text_offset,
     float* out_x
     ) {
-
     float32ToMa(x, inX_1);
     float32ToMa(qk_mask, inQk_mask_1);
 
     DecoderInput* input = [[DecoderInput alloc] initWithX:inX_1 qk_mask:inQk_mask_1 masked_kv_caches:arrayMKV448 cross_k_caches:arrayCK cross_v_caches:arrayCV];
 
-    MLPredictionOptions* options = [MLPredictionOptions alloc];
+    MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
 
     NSDictionary *outputBackings = @{
         @"out_x":outX_1,
@@ -434,7 +424,7 @@ void decoder1Predict(
     [(__bridge id)decoder1 predictionFromFeatures:input options:options error:&error];
 
     if(error) {
-        NSLog(@"%@", error);
+        NSLog(@"decoder1Predict %@", error);
     }
 
     maToFloat32(outX_1, out_x);
@@ -451,10 +441,6 @@ void decoder1Predict(
                srcPtr + i * srcStride,
                _n_state * sizeof(uint16));
     }
-
-    if (!isDecoder1Predicted) {
-        isDecoder1Predicted = true;
-    }
 }
 
 void closeDecoder1() {
@@ -464,18 +450,12 @@ void closeDecoder1() {
     NSLog(@"closeDecoder1");
     CFRelease(decoder1);
     decoder1 = nil;
-    CFRelease(inX_1.pixelBuffer);
     inX_1 = nil;
-    CFRelease(inQk_mask_1.pixelBuffer);
     inQk_mask_1 = nil;
-
-    CFRelease(outX_1.pixelBuffer);
     outX_1 = nil;
-    CFRelease(outMKV_1.pixelBuffer);
     outMKV_1 = nil;
 
     isDecoder1Loaded = false;
-    isDecoder1Predicted = false;
 }
 
 #if __cplusplus
