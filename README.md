@@ -19,12 +19,13 @@ python -m whisper YOUR_WAV_FILE --language=[ja|en|...] --model=turbo --beam_size
 ### Performance
 * transcribe() 1 mins song on Macbook M1 Air 16GB with **beam_size=5** (default option of openai/whisper)
 
-|  Model Size  | 1st load time | cached load time | transcribe time (bs=5)|
-|:------:|----------:|------------------:|------------------:|
-| turbo (openai/whisper cpu)  |     |            |      31s       |
-| turbo (whisper+coreml **default**) |  4s   |    1.5s        |      load time + 9.1s       |
-| turbo (whisper+coreml **encoder on ane**)  |  4m14s   |    1.5s        |      load time + 6.7s       |
 
+|  Model Size  | 1st load time | cached load time | transcribe time(bs=1) | transcribe time (bs=5)|
+|:------|----------:|------------------:|------------------:|------------------:|
+| turbo (openai/whisper cpu)  |     |          |21s  |      31s       |
+| turbo (whisper+coreml **default**) |  12s   |    1.2s        |load time + 5.5s|load time + 9.5s|
+| turbo (whisper+coreml **encoder on ane**)  |4m14s|1.5s| load time + **3.1s**|load time + **7.2s**       |
+| turbo ([mlx framework](https://github.com/ml-explore/mlx-examples/tree/main/whisper))| | | 4.6s| not support|
 
 ### Notes
 
@@ -46,3 +47,5 @@ Apple's ANECompilerService is slow for large models. It compiles the model on ea
   * 3 small encoders: 250s (default)
   * 8 small encoders: 170s
   * 16 smaller encoders: 154s
+
+If you use whisper on Mac, I highly recommend you use [MLX framework from Apple](https://github.com/ml-explore/mlx-examples/tree/main/whisper) instead of **coreml**. With MLX framework, no need to wait for the slow ANECompilerService. Happy developer and user experience. (PS: some limits on mlx framework are fixed beam size to 1 and slower when **--word-timestamps=True**)
